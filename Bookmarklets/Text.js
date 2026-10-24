@@ -1,0 +1,1 @@
+javascript:(function(){const t=prompt('Enter the replacement text:','[Changed]');if(t!==null){const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,null,false);let n;while(n=w.nextNode()){if(n.nodeValue.trim()!==''){n.nodeValue=t;}}}})();
