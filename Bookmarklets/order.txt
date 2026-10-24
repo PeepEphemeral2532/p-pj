@@ -1,0 +1,15 @@
+Images
+Text
+User-Agent
+Favicon
+Tab Title
+Sensors
+UUID
+Random Username
+Ultimate Calculator
+Notes
+Clock
+Nature
+Default User
+Random Color
+Pseudo-localization
