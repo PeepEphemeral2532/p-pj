@@ -1,0 +1,2133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drive the World — 3D OpenStreetMap driving game</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9A%97%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" id="maplibreCss" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.5.0/dist/maplibre-gl.css"
+      onerror="this.onerror=null;this.href='https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.css';" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-border: #334155;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --accent-dark: #0284c7;
+    --focus: #fbbf24;
+    --danger: #f87171;
+    --ok: #4ade80;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", Roboto, system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+  }
+
+  a.skip-link {
+    position: absolute;
+    left: -999px;
+    top: 0;
+    background: var(--accent);
+    color: #001018;
+    padding: 10px 16px;
+    z-index: 3000;
+    font-weight: 700;
+    border-radius: 0 0 8px 0;
+  }
+  a.skip-link:focus { left: 0; }
+
+  header {
+    padding: 12px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.25rem; margin: 0; }
+  header p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+
+  main {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    height: calc(100vh - 62px);
+  }
+  @media (max-width: 800px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    #map { height: 60vh; }
+  }
+
+  #sidebar {
+    overflow-y: auto;
+    background: var(--panel);
+    border-right: 1px solid var(--panel-border);
+    padding: 16px;
+  }
+
+  section.panel {
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 16px;
+    background: #16223a;
+  }
+  section.panel h2 { font-size: 1rem; margin: 0 0 8px 0; color: var(--accent); }
+
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
+
+  input[type="text"], input[type="password"] {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--panel-border);
+    background: #0b1526;
+    color: var(--text);
+    font-size: 1rem;
+    margin-bottom: 8px;
+  }
+
+  input:focus, button:focus, [tabindex]:focus {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  button {
+    background: var(--accent-dark);
+    color: #fff;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button:hover { background: var(--accent); color: #001018; }
+  button.secondary { background: transparent; border: 1px solid var(--panel-border); color: var(--text); }
+  button.secondary:hover { background: #22314f; }
+  button.secondary.active { background: #16a34a; border-color: #16a34a; color: #fff; }
+
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+
+  ul.results, ol.steps {
+    list-style: none;
+    margin: 8px 0 0 0;
+    padding: 0;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  ul.results li, ol.steps li { margin-bottom: 4px; }
+  ul.results button, ol.steps .step-text {
+    width: 100%;
+    text-align: left;
+    background: #0b1526;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    font-weight: 400;
+    padding: 8px;
+    border-radius: 6px;
+  }
+  ol.steps { counter-reset: step; padding-left: 0; }
+  ol.steps li {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 6px 4px; border-bottom: 1px solid #22314f;
+  }
+  ol.steps li::before {
+    counter-increment: step; content: counter(step);
+    background: var(--accent-dark); color: #fff; border-radius: 50%;
+    width: 22px; height: 22px; min-width: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.75rem; font-weight: 700;
+  }
+
+  .status-line {
+    display: flex; justify-content: space-between;
+    font-size: 0.9rem; padding: 4px 0; border-bottom: 1px dashed #22314f;
+  }
+  .status-line span:first-child { color: var(--muted); }
+
+  #driveStatus { font-size: 0.85rem; color: var(--ok); min-height: 1.2em; }
+  #errorLog { font-size: 0.85rem; color: var(--danger); min-height: 1.2em; }
+
+  .controls-grid {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px;
+  }
+  .controls-grid button { padding: 14px 0; font-size: 1.2rem; }
+  .controls-grid .empty { visibility: hidden; }
+
+  .pitch-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .pitch-row input[type="range"] { flex: 1; }
+
+  kbd {
+    background: #0b1526; border: 1px solid var(--panel-border); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 6px; font-family: monospace; font-size: 0.85rem;
+  }
+
+  #map { height: 100%; width: 100%; background: #0b1526; position: relative; z-index: 2; transition: opacity 0.2s linear; }
+  #mapAerial { position: absolute; inset: 0; height: 100%; width: 100%; z-index: 1; display: none; }
+
+  /* Fixed screen-pinned car icon: the CAMERA moves/rotates to follow the car every frame,
+     so the icon itself never needs map projection — this avoids any drift from terrain
+     elevation being calculated slightly differently for markers vs. the camera. */
+  .car-marker-wrap {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px;
+    transform: translate(-50%, -50%) rotate(-90deg); /* emoji points up; camera rotates instead of the icon */
+    filter: drop-shadow(0 0 4px #000) drop-shadow(0 2px 3px rgba(0,0,0,0.6));
+    z-index: 400;
+    pointer-events: none;
+  }
+
+  details summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+
+  .maplibregl-ctrl-attrib { font-size: 10px; }
+
+  #standaloneNotice {
+    background: #3a2a10;
+    border: 1px solid #b8860b;
+    color: #ffd166;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    margin-bottom: 16px;
+  }
+
+  #mapWrap { position: relative; height: 100%; width: 100%; }
+
+  #miniMapWrap {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 500;
+    width: 190px;
+    height: 190px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 3px solid rgba(255,255,255,0.9);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.55);
+  }
+  #miniMap { width: 100%; height: 100%; }
+  #miniMapCompass {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    width: 22px;
+    height: 22px;
+    background: #0b1526;
+    color: #38bdf8;
+    border: 2px solid #38bdf8;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 800;
+    pointer-events: none;
+    z-index: 501;
+  }
+
+  #streetLabel {
+    position: absolute;
+    top: 214px;
+    left: 14px;
+    z-index: 500;
+    background: #16a34a;
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+    display: none;
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Row of small overlay buttons, sits below the street label — never overlaps it */
+  #overlayBtnRow {
+    position: absolute;
+    top: 260px;
+    left: 14px;
+    z-index: 500;
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    width: 190px;
+  }
+  #overlayBtnRow button {
+    background: rgba(11,21,38,0.88);
+    color: #fff;
+    border: 2px solid #facc15;
+    border-radius: 10px;
+    width: 42px;
+    height: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 0;
+    gap: 0;
+    line-height: 1.1;
+  }
+  #overlayBtnRow button .bigLetter { font-size: 0.95rem; }
+  #overlayBtnRow button.active { border-color: #4ade80; color: #4ade80; }
+  #overlayBtnRow button#muteBtn.muted { border-color: #f87171; color: #f87171; }
+
+  #speedHud {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    z-index: 500;
+    background: rgba(0,0,0,0.4);
+    padding: 8px 18px;
+    border-radius: 12px;
+    text-align: center;
+    color: #fff;
+    font-family: "Consolas", monospace;
+    pointer-events: none;
+  }
+  #speedHudValue { font-size: 2.6rem; font-weight: 800; display: block; line-height: 1; }
+  #speedHudUnit { font-size: 0.7rem; letter-spacing: 3px; color: #94a3b8; }
+
+  #bottomLeftHuds {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    z-index: 500;
+    display: flex;
+    gap: 10px;
+  }
+  #distanceHud, #turnDistanceHud {
+    background: rgba(0,0,0,0.4);
+    padding: 8px 16px;
+    border-radius: 12px;
+    text-align: center;
+    color: #fff;
+    font-family: "Consolas", monospace;
+    pointer-events: none;
+  }
+  #distanceHudValue, #turnDistanceHudValue { font-size: 1.6rem; font-weight: 800; display: block; line-height: 1; }
+  #distanceHudUnit, #turnDistanceHudUnit { font-size: 0.65rem; letter-spacing: 2px; color: #94a3b8; }
+
+  .aerialControl {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 550;
+    background: rgba(11,21,38,0.88);
+    border: 2px solid #38bdf8;
+    border-radius: 10px;
+    padding: 8px 10px;
+    color: #f1f5f9;
+    font-size: 0.78rem;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 150px;
+  }
+  .aerialControl label { display: flex; align-items: center; gap: 6px; margin: 0; color: #f1f5f9; }
+  .aerialControl input[type="checkbox"] { width: auto; margin: 0; }
+  #bigMapPanel .aerialControl { top: 56px; }
+
+  #directionsPanel {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    z-index: 750;
+    width: 300px;
+    max-height: calc(100% - 28px);
+    overflow-y: auto;
+    background: rgba(15,23,42,0.94);
+    border: 2px solid #facc15;
+    border-radius: 12px;
+    padding: 14px;
+    color: #f1f5f9;
+    display: none;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  #directionsPanel.open { display: block; }
+  #directionsPanel h3 {
+    margin: 0 0 8px 0;
+    font-size: 1rem;
+    color: #facc15;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+  }
+  #directionsPanel h3 .dp-title { flex: 1; }
+  #directionsPanel .dp-summary { font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px; }
+  #directionsPanel ol { list-style: none; margin: 0; padding: 0; }
+  #directionsPanel li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #334155;
+    font-size: 0.85rem;
+  }
+  #directionsPanel li.next-turn { background: rgba(250,204,21,0.12); border-radius: 8px; padding-left: 6px; }
+  #directionsPanel .dp-icon {
+    width: 26px; height: 26px; min-width: 26px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.1rem; color: #facc15;
+  }
+  #directionsPanel .dp-dist { color: #94a3b8; font-size: 0.75rem; white-space: nowrap; margin-left: auto; padding-left: 6px; }
+  #directionsPanel .dp-btn { background: none; border: none; color: #94a3b8; font-size: 0.9rem; cursor: pointer; padding: 2px 6px; }
+  #directionsPanel .dp-btn.active { color: #facc15; }
+
+  /* Large pannable OSM Carto map overlay (M) */
+  #bigMapPanel {
+    position: absolute;
+    top: 5%;
+    left: 5%;
+    width: 90%;
+    height: 90%;
+    z-index: 700;
+    background: #0b1526;
+    border: 2px solid #facc15;
+    border-radius: 14px;
+    overflow: hidden;
+    display: none;
+    box-shadow: 0 12px 36px rgba(0,0,0,0.6);
+  }
+  #bigMapPanel.open { display: block; }
+  #bigMap { width: 100%; height: 100%; }
+  #bigMapClose {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 701;
+    background: rgba(11,21,38,0.9);
+    color: #fff;
+    border: 2px solid #facc15;
+    border-radius: 8px;
+    width: 36px; height: 36px;
+    font-size: 1rem;
+    cursor: pointer;
+  }
+
+  /* Hide-UI mode: keeps header, minimap, street label, HUDs, and overlay buttons; hides sidebar + drive buttons */
+  body.ui-hidden main { grid-template-columns: 1fr; }
+  body.ui-hidden #sidebar { display: none; }
+  body.ui-hidden .controls-grid { display: none; }
+  body.ui-hidden .pitch-row { display: none; }
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#map">Skip to map</a>
+
+<header>
+  <h1>🚗 Drive the World (3D)</h1>
+  <p>3D buildings and real terrain elevation from OpenStreetMap data, with Nominatim search and GraphHopper directions.</p>
+</header>
+
+<main>
+  <div id="sidebar" aria-label="Controls and information panel">
+
+    <div class="row" style="margin-bottom:12px;">
+      <button type="button" id="unitsMetricBtn" class="secondary active">Metric</button>
+      <button type="button" id="unitsImperialBtn" class="secondary">Imperial</button>
+    </div>
+
+    <p id="standaloneNotice">
+      ⚠️ This 3D version needs Web Workers, which some embedded/preview browser panes block for security
+      reasons. If the map area stays blank or you see a worker-related error, open this HTML file directly
+      in its own browser tab (not inside an embedded preview) — that resolves it.
+    </p>
+
+    <section class="panel" aria-labelledby="searchHeading">
+      <h2 id="searchHeading">🔎 Search a place</h2>
+      <form id="searchForm">
+        <label for="searchInput">Place name, address, or city</label>
+        <input type="text" id="searchInput" name="searchInput" autocomplete="off" placeholder="e.g. Calgary Tower, Alberta">
+        <button type="submit">Search</button>
+      </form>
+      <ul class="results" id="searchResults" role="listbox" aria-label="Search results"></ul>
+    </section>
+
+    <section class="panel" aria-labelledby="directionsHeading">
+      <h2 id="directionsHeading">🧭 Directions</h2>
+      <label for="ghKey">GraphHopper API key</label>
+      <input type="password" id="ghKey" autocomplete="off" placeholder="Paste your free GraphHopper API key">
+      <p style="font-size:0.75rem;color:var(--muted);margin-top:-4px;">
+        Get a free key at
+        <a href="https://www.graphhopper.com/dashboard/#/register" target="_blank" rel="noopener" style="color:var(--accent)">graphhopper.com</a>.
+        Stored only in your browser (localStorage).
+      </p>
+
+      <form id="directionsForm">
+        <label for="fromInput">From</label>
+        <div class="row">
+          <input type="text" id="fromInput" autocomplete="off" placeholder="Start address, or leave blank to use your car">
+          <button type="button" id="useCarBtn" class="secondary" title="Use current car position as start">Use car</button>
+        </div>
+        <label for="toInput">To</label>
+        <input type="text" id="toInput" autocomplete="off" placeholder="Destination address">
+        <div class="row" style="margin-bottom:8px;">
+          <button type="button" id="invertBtn" class="secondary" title="Swap From and To">⇅ Invert From/To</button>
+        </div>
+        <div class="row" style="margin-bottom:8px;">
+          <button type="button" id="teleportFromBtn" class="secondary">Teleport to From</button>
+          <button type="button" id="teleportToBtn" class="secondary">Teleport to To</button>
+        </div>
+        <button type="submit">Get directions</button>
+      </form>
+
+      <p style="font-size:0.75rem;color:var(--muted);margin:8px 0 0 0;">
+        🔊 As you drive an active route, turns are spoken aloud.
+      </p>
+
+      <div id="routeSummary" aria-live="polite"></div>
+      <ol class="steps" id="routeSteps" aria-label="Turn-by-turn directions"></ol>
+    </section>
+
+    <section class="panel" aria-labelledby="driveHeading">
+      <h2 id="driveHeading">🎮 Drive</h2>
+      <p style="font-size:0.8rem;color:var(--muted);margin:0 0 6px 0;">
+        Keyboard: <kbd>↑</kbd>/<kbd>W</kbd> accelerate,
+        <kbd>↓</kbd>/<kbd>S</kbd> brake/reverse,
+        <kbd>←</kbd>/<kbd>A</kbd> turn left,
+        <kbd>→</kbd>/<kbd>D</kbd> turn right,
+        <kbd>Space</kbd> stop,
+        <kbd>M</kbd> pannable map,
+        <kbd>N</kbd> turn list,
+        <kbd>F</kbd> autodrive.
+        The camera rotates and tilts with your car, like a chase view.
+      </p>
+
+      <div class="controls-grid" role="group" aria-label="On-screen driving controls">
+        <span class="empty"></span>
+        <button id="btnUp" aria-label="Accelerate forward">▲</button>
+        <span class="empty"></span>
+
+        <button id="btnLeft" aria-label="Turn left">◀</button>
+        <button id="btnStop" aria-label="Stop the car">■</button>
+        <button id="btnRight" aria-label="Turn right">▶</button>
+
+        <span class="empty"></span>
+        <button id="btnDown" aria-label="Brake or reverse">▼</button>
+        <span class="empty"></span>
+      </div>
+
+      <div class="row" style="margin-top:10px;align-items:center;">
+        <button type="button" id="autodriveBtn" class="secondary" style="flex:0 0 auto;">🚘 Autodrive (F)</button>
+        <label for="autodriveSpeed" style="margin:0;white-space:nowrap;flex:0 0 auto;">Speed</label>
+        <input type="range" id="autodriveSpeed" min="10" max="350" value="350" style="flex:1;">
+        <span id="autodriveSpeedVal" style="flex:0 0 auto;font-size:0.8rem;color:var(--muted);">350 km/h</span>
+      </div>
+      <p style="font-size:0.75rem;color:var(--muted);margin:4px 0 0 0;">
+        Autodrive follows your calculated route automatically. Requires a route from the Directions panel above.
+      </p>
+
+      <div class="pitch-row">
+        <label for="pitchSlider" style="margin:0;white-space:nowrap;">Camera tilt</label>
+        <input type="range" id="pitchSlider" min="0" max="75" value="55" aria-label="Camera tilt angle">
+      </div>
+
+      <div class="status-line"><span>Speed</span><span id="speedVal">0 km/h</span></div>
+      <div class="status-line"><span>Heading</span><span id="headingVal">0°</span></div>
+      <div class="status-line"><span>Distance driven</span><span id="distVal">0.0 km</span></div>
+
+      <p id="driveStatus" aria-live="polite"></p>
+      <p id="errorLog" role="alert" aria-live="assertive"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="coordsHeading">
+      <h2 id="coordsHeading">📍 Coordinates</h2>
+      <div class="row" style="margin-bottom:8px;">
+        <button type="button" id="copyCoordsBtn" class="secondary">Copy</button>
+        <button type="button" id="getCoordsBtn" class="secondary">Get coordinates</button>
+      </div>
+      <input type="text" id="coordsInput" placeholder="lat, lng" autocomplete="off">
+      <div class="row">
+        <button type="button" id="pasteCoordsBtn" class="secondary">Paste</button>
+        <button type="button" id="teleportCoordsBtn">Teleport to coordinates</button>
+      </div>
+      <p id="coordsSavedNote" style="font-size:0.75rem;color:var(--ok);min-height:1.1em;margin:4px 0 0 0;"></p>
+    </section>
+
+    <details>
+      <summary>About this app / data sources</summary>
+      <p style="font-size:0.8rem;color:var(--muted)">
+        Map style &amp; 3D buildings: OpenFreeMap "Liberty" (built from OpenStreetMap data).
+        Terrain elevation: public Terrarium DEM tiles. Sky/lighting is fixed (no time-of-day or
+        seasonal simulation). Aerial imagery: Esri World Imagery, toggleable with an optional 25%
+        map-opacity blend, available on the main view, minimap, and big map.
+        Note: this is styled map/terrain data, not a custom 3D game engine — individually
+        textured/lit building windows and modeled vehicles (like fully custom driving games)
+        aren't something achievable from open map data alone.
+        Search &amp; reverse geocoding: Nominatim. Routing: GraphHopper Directions API (a shared
+        default key is pre-filled; you can swap in your own free key). Autodrive follows a
+        calculated route exactly when one exists, or otherwise wanders the real OSM road network
+        (mostly going straight through intersections, occasionally taking a random turn) using
+        live Overpass road data. Turn-by-turn narration uses your browser's built-in text-to-speech.
+        Hobby project, not affiliated with OpenStreetMap, OpenFreeMap, GraphHopper, or Esri.
+      </p>
+    </details>
+  </div>
+
+  <div id="mapWrap">
+    <div id="map" aria-label="Interactive 3D map — drive your car around real-world roads and buildings"></div>
+    <div id="miniMapWrap" aria-hidden="true">
+      <div id="miniMap"></div>
+    </div>
+    <div id="miniMapCompass" aria-hidden="true">N</div>
+    <div id="streetLabel" aria-live="polite"></div>
+
+    <div class="aerialControl" id="aerialControlMain">
+      <label><input type="checkbox" id="aerialToggleMain"> Aerial Imagery</label>
+      <label><input type="checkbox" id="aerialOpacityMain"> 25% opacity</label>
+    </div>
+    <button type="button" id="hideDirectionsBtnMain" class="secondary"
+            style="position:absolute;top:98px;right:14px;z-index:551;padding:8px 14px;font-size:0.8rem;font-weight:700;border-width:2px;border-color:#facc15;color:#facc15;background:rgba(11,21,38,0.95);">
+      Hide Directions
+    </button>
+
+    <div id="overlayBtnRow">
+      <button id="bigMapToggleBtn" type="button" title="Press M"><span class="bigLetter">M</span><span>Map</span></button>
+      <button id="directionsToggleBtn" type="button" title="Press N"><span class="bigLetter">N</span><span>Turns</span></button>
+      <button id="muteBtn" type="button" title="Mute voice directions"><span class="bigLetter">🔊</span><span>Voice</span></button>
+      <button id="hideUiBtn" type="button" title="Press H"><span class="bigLetter">▤</span><span>H / Hide</span></button>
+      <button id="fullscreenBtn" type="button" title="Press K"><span class="bigLetter">⛶</span><span>K / Full</span></button>
+    </div>
+
+    <div id="directionsPanel" role="region" aria-label="Turn-by-turn directions">
+      <h3><span class="dp-title">Directions</span>
+        <button type="button" class="dp-btn" id="dpAutoScrollBtn" title="Toggle auto-scroll" aria-label="Toggle auto-scroll">⇅</button>
+        <button type="button" class="dp-btn" id="dpCloseBtn" aria-label="Close directions panel">✕</button>
+      </h3>
+      <div class="dp-summary" id="dpSummary">No route calculated yet — use the Directions panel on the left.</div>
+      <ol id="dpSteps"></ol>
+    </div>
+
+    <div id="bigMapPanel">
+      <button id="bigMapClose" type="button" aria-label="Close map">✕</button>
+      <div class="aerialControl" id="bigMapCenterControls" style="right:56px;left:auto;top:14px;flex-direction:row;">
+        <button type="button" id="bigMapCenterBtn" class="secondary" style="padding:6px 10px;font-size:0.75rem;">Center</button>
+        <button type="button" id="bigMapRecenterBtn" class="secondary" style="padding:6px 10px;font-size:0.75rem;">Recenter</button>
+        <button type="button" id="hideDirectionsBtnBig" class="secondary" style="padding:6px 10px;font-size:0.75rem;">Hide Directions</button>
+      </div>
+      <div class="aerialControl" id="aerialControlBig">
+        <label><input type="checkbox" id="aerialToggleBig"> Aerial Imagery</label>
+        <label><input type="checkbox" id="aerialOpacityBig"> 25% opacity</label>
+      </div>
+      <div id="bigMap"></div>
+    </div>
+
+    <div id="speedHud" aria-hidden="true">
+      <span id="speedHudValue">0</span>
+      <span id="speedHudUnit">KM/H</span>
+    </div>
+    <div id="bottomLeftHuds">
+      <div id="turnDistanceHud" aria-hidden="true">
+        <span id="turnDistanceHudValue">–</span>
+        <span id="turnDistanceHudUnit">TO TURN</span>
+      </div>
+      <div id="distanceHud" aria-hidden="true">
+        <span id="distanceHudValue">0.0</span>
+        <span id="distanceHudUnit">KM DRIVEN</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<script>
+function initApp() {
+  "use strict";
+
+  /* ---------------------------------------------------------
+     MAP SETUP (MapLibre GL, 3D buildings + terrain)
+  --------------------------------------------------------- */
+  var startLng = -114.0719, startLat = 51.0447; // Calgary
+
+  var map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    center: [startLng, startLat],
+    zoom: 17.5,
+    pitch: 55,
+    bearing: 0,
+    antialias: true
+  });
+  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
+  map.addControl(new maplibregl.AttributionControl({ compact: true }));
+
+  var mapReady = false;
+  var errorEl = document.getElementById('errorLog');
+  function showError(msg) {
+    errorEl.textContent = msg;
+    setTimeout(function () { if (errorEl.textContent === msg) errorEl.textContent = ''; }, 7000);
+  }
+
+  map.on('error', function (e) {
+    if (e && e.error && /terrain|dem/i.test(String(e.error.message || ''))) {
+      showError('Terrain elevation data failed to load — the 3D buildings will still work, just without hills.');
+    }
+  });
+
+  /* ---------------------------------------------------------
+     SKY — fixed, neutral lighting (no time-of-day/season simulation)
+  --------------------------------------------------------- */
+  function applyFixedSky() {
+    try {
+      map.setSky({
+        'sky-color': '#2f7fc9',
+        'sky-horizon-blend': 0.4,
+        'horizon-color': '#a9d4ee',
+        'horizon-fog-blend': 0.4,
+        'fog-color': '#dcecf7',
+        'fog-ground-blend': 0.2
+      });
+    } catch (err) { /* older MapLibre without sky support — safe to ignore */ }
+    try {
+      map.setLight({ anchor: 'viewport', color: '#fff6e6', intensity: 0.55, position: [1.5, 90, 60] });
+    } catch (err) { /* older MapLibre without light support — safe to ignore */ }
+  }
+
+  map.on('load', function () {
+    mapReady = true;
+
+    try {
+      map.addSource('terrain-dem', {
+        type: 'raster-dem',
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        encoding: 'terrarium',
+        maxzoom: 15
+      });
+      map.setTerrain({ source: 'terrain-dem', exaggeration: 1.0 });
+    } catch (err) {
+      showError('Could not enable 3D terrain: ' + err.message);
+    }
+
+    applyFixedSky();
+
+    map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+    // Aerial imagery overlay (off by default) — toggled via the top-right control
+    map.addSource('aerial-imagery', {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      attribution: 'Esri World Imagery'
+    });
+    map.addLayer({
+      id: 'aerial-imagery-layer',
+      type: 'raster',
+      source: 'aerial-imagery',
+      layout: { visibility: 'none' },
+      paint: { 'raster-opacity': 1 }
+    });
+    map.addLayer({
+      id: 'route-line',
+      type: 'line',
+      source: 'route',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#38bdf8', 'line-width': 5, 'line-opacity': 0.9 }
+    });
+
+    // Yellow overlay shown ONLY within 600m of an upcoming/just-passed turn (see checkTurnByTurn)
+    map.addSource('route-highlight', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'route-highlight-line',
+      type: 'line',
+      source: 'route-highlight',
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#facc15', 'line-width': 7, 'line-opacity': 0.95 }
+    });
+  });
+
+  /* ---------------------------------------------------------
+     CAR ICON — fixed to the center of the screen (not map-projected),
+     since the camera already follows the car exactly every frame.
+  --------------------------------------------------------- */
+  var carEl = document.createElement('div');
+  carEl.className = 'car-marker-wrap';
+  carEl.textContent = '🚗';
+  document.getElementById('mapWrap').appendChild(carEl);
+
+  /* ---------------------------------------------------------
+     MINIMAP — standard OSM Carto tiles, fixed north-up, own zoom control
+  --------------------------------------------------------- */
+  var miniMap = L.map('miniMap', {
+    zoomControl: true,
+    attributionControl: false,
+    dragging: true,
+    scrollWheelZoom: false,
+    keyboard: false
+  }).setView([startLat, startLng], 15);
+  miniMap.zoomControl.setPosition('topleft');
+  L.control.scale({ position: 'bottomleft', imperial: false, metric: true, maxWidth: 80 }).addTo(miniMap);
+
+  miniMap.createPane('aerialPane');
+  miniMap.getPane('aerialPane').style.zIndex = 200;
+  miniMap.createPane('basePane');
+  miniMap.getPane('basePane').style.zIndex = 300;
+
+  var miniMapAerialLayer = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { maxZoom: 19, attribution: 'Esri World Imagery', opacity: 0, pane: 'aerialPane' }
+  ).addTo(miniMap);
+  var miniMapBaseLayer = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', {
+    maxZoom: 19, maxNativeZoom: 18,
+    attribution: '',
+    opacity: 1,
+    pane: 'basePane'
+  }).addTo(miniMap);
+
+  var miniCarIcon = L.divIcon({
+    className: '',
+    html: '<div id="miniCarArrow" style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;' +
+          'border-bottom:16px solid #38bdf8;filter:drop-shadow(0 0 3px #000);transform:rotate(0deg);transition:transform 0.15s linear;"></div>',
+    iconSize: [16, 16],
+    iconAnchor: [8, 8]
+  });
+  var miniCarMarker = L.marker([startLat, startLng], { icon: miniCarIcon, keyboard: false }).addTo(miniMap);
+  var miniCarArrowEl = document.getElementById('miniCarArrow');
+  var miniRouteLine = L.polyline([], { color: '#38bdf8', weight: 4, opacity: 0.95 }).addTo(miniMap);
+  var miniRouteHighlight = L.polyline([], { color: '#facc15', weight: 5, opacity: 0.98 }).addTo(miniMap);
+
+  setTimeout(function () { miniMap.invalidateSize(); }, 200);
+  setTimeout(function () { miniMap.invalidateSize(); }, 700);
+
+  /* ---------------------------------------------------------
+     STREET NAME BADGE — throttled reverse geocoding via Nominatim
+  --------------------------------------------------------- */
+  var streetLabelEl = document.getElementById('streetLabel');
+  var lastReverseGeocodeTime = 0;
+  var lastReverseGeocodeLat = null, lastReverseGeocodeLng = null;
+
+  function maybeUpdateStreetLabel() {
+    var now = Date.now();
+    if (now - lastReverseGeocodeTime < 5000) return;
+    if (lastReverseGeocodeLat !== null) {
+      var dLat = car.lat - lastReverseGeocodeLat, dLng = car.lng - lastReverseGeocodeLng;
+      var roughMeters = Math.sqrt(dLat * dLat + dLng * dLng) * 111000;
+      if (roughMeters < 25) return; // hasn't moved far enough to bother re-querying
+    }
+    lastReverseGeocodeTime = now;
+    lastReverseGeocodeLat = car.lat;
+    lastReverseGeocodeLng = car.lng;
+
+    var url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=17&addressdetails=1&lat=' + car.lat + '&lon=' + car.lng;
+    fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) {
+      if (!r.ok) throw new Error('reverse geocode failed');
+      return r.json();
+    }).then(function (data) {
+      var addr = data.address || {};
+      var name = addr.road || addr.pedestrian || addr.footway || addr.cycleway || null;
+      if (name) {
+        streetLabelEl.textContent = name;
+        streetLabelEl.style.display = 'block';
+      } else {
+        streetLabelEl.style.display = 'none';
+      }
+    }).catch(function () { /* non-critical; just skip showing a street name this cycle */ });
+  }
+  var car = {
+    lat: startLat, lng: startLng,
+    heading: 0, speed: 0,
+    maxSpeed: 97.2, maxReverse: -20, // 350 km/h top speed, faster reverse too
+    accel: 6.5, brakeAccel: 22, friction: 6,
+    turnRate: 55
+  };
+  var totalDistanceM = 0;
+
+  function teleportCarTo(lat, lng) {
+    car.lat = lat;
+    car.lng = lng;
+    car.speed = 0;
+    if (mapReady) map.jumpTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 17) });
+    syncRouteToCar();
+  }
+
+  // After a teleport: work out where on the route the car now is, so the turn list, the
+  // yellow highlight and autodrive all continue from THERE (instead of resetting to turn 1,
+  // or letting autodrive snap the car back to its old position along the route).
+  function syncRouteToCar() {
+    wanderState = null; // wander autodrive (if on) restarts from the new location
+    if (!activeRoute || !activeRoute.coords) { updateRouteHighlight(null); return; }
+    var idx = nearestRouteIndex(activeRoute.coords, car.lat, car.lng);
+    var c = activeRoute.coords[idx];
+    var offRoute = distanceMeters(car.lat, car.lng, c[1], c[0]) > 300;
+    activeRoute.progressM = activeRoute.cumDist[idx];
+    activeRoute.arrived = false;
+    activeRoute.steps.forEach(function (st) {
+      st.announced = offRoute ? false : (st.pointIdx < idx);
+      st.passedAtOdometer = null;
+    });
+    dpLastScrolledIdx = -1;
+    updateRouteHighlight(null);
+    if (directionsPanelOpen) renderDirectionsPanel();
+  }
+
+  function destPoint(lat, lng, bearingDeg, distanceM) {
+    var R = 6371000;
+    var brng = bearingDeg * Math.PI / 180;
+    var lat1 = lat * Math.PI / 180;
+    var lng1 = lng * Math.PI / 180;
+    var lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(distanceM / R) +
+      Math.cos(lat1) * Math.sin(distanceM / R) * Math.cos(brng)
+    );
+    var lng2 = lng1 + Math.atan2(
+      Math.sin(brng) * Math.sin(distanceM / R) * Math.cos(lat1),
+      Math.cos(distanceM / R) - Math.sin(lat1) * Math.sin(lat2)
+    );
+    return { lat: lat2 * 180 / Math.PI, lng: lng2 * 180 / Math.PI };
+  }
+
+  function distanceMeters(lat1, lng1, lat2, lng2) {
+    var R = 6371000;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLng = (lng2 - lng1) * Math.PI / 180;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  /* ---------------------------------------------------------
+     UNITS (Metric / Imperial)
+  --------------------------------------------------------- */
+  var units = 'metric';
+  function formatDistanceLong(m) { // "1.2 km" / "850 m"  or  "0.8 mi" / "900 ft"
+    if (units === 'imperial') {
+      var ft = m * 3.28084;
+      if (ft < 528) return Math.round(ft) + ' ft';
+      return (ft / 5280).toFixed(1) + ' mi';
+    }
+    return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m) + ' m';
+  }
+  function formatDistanceShort(m) { // for big HUD numbers — always a single decimal figure
+    return units === 'imperial' ? (m / 1609.344).toFixed(2) : (m / 1000).toFixed(2);
+  }
+  function distanceUnitLabel(longForm) {
+    if (units === 'imperial') return longForm ? 'mi driven' : 'MI DRIVEN';
+    return longForm ? 'km driven' : 'KM DRIVEN';
+  }
+  function formatSpeed(metersPerSec) {
+    var kmh = Math.abs(metersPerSec) * 3.6;
+    return units === 'imperial' ? Math.round(kmh / 1.60934) : Math.round(kmh);
+  }
+  function speedUnitLabel() { return units === 'imperial' ? 'mph' : 'km/h'; }
+
+  function setUnits(u) {
+    units = u;
+    document.getElementById('unitsMetricBtn').classList.toggle('active', u === 'metric');
+    document.getElementById('unitsImperialBtn').classList.toggle('active', u === 'imperial');
+    document.getElementById('speedHudUnit').textContent = (u === 'imperial' ? 'MPH' : 'KM/H');
+    document.getElementById('distanceHudUnit').textContent = distanceUnitLabel(false);
+    if (activeRoute) { renderDirectionsPanel(); }
+  }
+  document.getElementById('unitsMetricBtn').addEventListener('click', function () { setUnits('metric'); });
+  document.getElementById('unitsImperialBtn').addEventListener('click', function () { setUnits('imperial'); });
+
+  /* ---------------------------------------------------------
+     TURN-BY-TURN VOICE NARRATION (Web Speech API)
+  --------------------------------------------------------- */
+  var activeRoute = null; // { steps: [{lat,lng,text,announced,sign,distance,highlightCoords,passedAtOdometer}], destLat, destLng, arrived, coords, summary }
+  var ANNOUNCE_DISTANCE_M = 70;
+  var ARRIVE_DISTANCE_M = 25;
+  var HIGHLIGHT_WINDOW_M = 600;
+  var voiceMuted = false;
+
+  function speak(text) {
+    if (voiceMuted) return;
+    if (!('speechSynthesis' in window)) return;
+    try {
+      window.speechSynthesis.cancel(); // don't let announcements pile up and queue awkwardly
+      var utter = new SpeechSynthesisUtterance(text);
+      utter.rate = 1.0;
+      window.speechSynthesis.speak(utter);
+    } catch (err) { /* speech synthesis not available — silently skip */ }
+  }
+
+  function resetTurnByTurnProgress() {
+    if (activeRoute) {
+      activeRoute.steps.forEach(function (s) { s.announced = false; s.passedAtOdometer = null; });
+      activeRoute.arrived = false;
+    }
+    updateRouteHighlight(null);
+  }
+
+  function updateRouteHighlight(coordsOrNull) {
+    if (mapReady && map.getSource('route-highlight')) {
+      var feats = coordsOrNull ? [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coordsOrNull }, properties: {} }] : [];
+      map.getSource('route-highlight').setData({ type: 'FeatureCollection', features: feats });
+    }
+    var latlngs = coordsOrNull ? coordsOrNull.map(function (c) { return [c[1], c[0]]; }) : [];
+    if (miniRouteHighlight) miniRouteHighlight.setLatLngs(latlngs);
+    if (bigMapRouteHighlight) bigMapRouteHighlight.setLatLngs(latlngs);
+  }
+
+  function checkTurnByTurn() {
+    if (!activeRoute) { updateRouteHighlight(null); return; }
+
+    for (var i = 0; i < activeRoute.steps.length; i++) {
+      var s = activeRoute.steps[i];
+      if (s.announced) continue;
+      var d = distanceMeters(car.lat, car.lng, s.lat, s.lng);
+      if (d <= ANNOUNCE_DISTANCE_M) {
+        s.announced = true;
+        s.passedAtOdometer = totalDistanceM;
+        speak(s.text);
+        announceDrive(s.text);
+      }
+      break; // only ever consider the next un-announced step
+    }
+
+    // Yellow highlight: active only within 600m before an upcoming turn, or 600m after one just passed
+    var highlightStep = null;
+    for (var j = 0; j < activeRoute.steps.length; j++) {
+      var st = activeRoute.steps[j];
+      if (!st.announced) {
+        if (distanceMeters(car.lat, car.lng, st.lat, st.lng) <= HIGHLIGHT_WINDOW_M) { highlightStep = st; }
+        break;
+      } else if (st.passedAtOdometer !== null && (totalDistanceM - st.passedAtOdometer) <= HIGHLIGHT_WINDOW_M) {
+        highlightStep = st;
+      }
+    }
+    updateRouteHighlight(highlightStep ? highlightStep.highlightCoords : null);
+
+    if (!activeRoute.arrived) {
+      var dEnd = distanceMeters(car.lat, car.lng, activeRoute.destLat, activeRoute.destLng);
+      if (dEnd <= ARRIVE_DISTANCE_M) {
+        activeRoute.arrived = true;
+        speak('You have arrived at your destination.');
+        announceDrive('You have arrived at your destination.');
+        if (autodriveOn) toggleAutodrive(false);
+      }
+    }
+    if (directionsPanelOpen) renderDirectionsPanel();
+  }
+
+  // Given the full route coordinate list and a center index, return the sub-path within
+  // radiusM meters before and after that point (used for the 600m yellow turn highlight).
+  function subPathAround(coords, centerIdx, radiusM) {
+    var startIdx = centerIdx, acc = 0;
+    while (startIdx > 0 && acc < radiusM) {
+      acc += distanceMeters(coords[startIdx][1], coords[startIdx][0], coords[startIdx - 1][1], coords[startIdx - 1][0]);
+      startIdx--;
+    }
+    var endIdx = centerIdx; acc = 0;
+    while (endIdx < coords.length - 1 && acc < radiusM) {
+      acc += distanceMeters(coords[endIdx][1], coords[endIdx][0], coords[endIdx + 1][1], coords[endIdx + 1][0]);
+      endIdx++;
+    }
+    return coords.slice(startIdx, endIdx + 1);
+  }
+
+  /* ---------------------------------------------------------
+     DIRECTIONS PANEL (press N) — OSM-style turn list, auto-scrolling
+  --------------------------------------------------------- */
+  var directionsPanelOpen = false;
+  var directionsPanelEl = document.getElementById('directionsPanel');
+  var dpSummaryEl = document.getElementById('dpSummary');
+  var dpStepsEl = document.getElementById('dpSteps');
+  var dpAutoScrollBtn = document.getElementById('dpAutoScrollBtn');
+  var dpAutoScroll = true;
+  var dpLastScrolledIdx = -1;
+  dpAutoScrollBtn.classList.add('active');
+
+  // GraphHopper "sign" codes -> arrow glyph
+  var SIGN_ICONS = {
+    '-98': '↻', '-8': '↩', '-7': '⟲', '-6': '⤵', '-3': '↖', '-2': '↖', '-1': '↖',
+    '0': '↑', '1': '↗', '2': '↗', '3': '↗', '6': '⟳', '4': '🏁', '5': '•'
+  };
+  function iconForSign(sign) {
+    return SIGN_ICONS[String(sign)] || '↑';
+  }
+
+  function toggleDirectionsPanel(forceOpen) {
+    directionsPanelOpen = typeof forceOpen === 'boolean' ? forceOpen : !directionsPanelOpen;
+    directionsPanelEl.classList.toggle('open', directionsPanelOpen);
+    document.getElementById('directionsToggleBtn').classList.toggle('active', directionsPanelOpen);
+    if (directionsPanelOpen) { dpLastScrolledIdx = -1; renderDirectionsPanel(); }
+  }
+
+  function teleportBeforeTurn(step) {
+    var pt = (step.highlightCoords && step.highlightCoords.length) ? step.highlightCoords[0] : [step.lng, step.lat];
+    teleportCarTo(pt[1], pt[0]);
+    announceDrive('Teleported to 600m before: ' + step.text);
+  }
+
+  function renderDirectionsPanel() {
+    if (!activeRoute || !activeRoute.steps.length) {
+      dpSummaryEl.textContent = 'No route calculated yet — use the Directions panel on the left.';
+      dpStepsEl.innerHTML = '';
+      return;
+    }
+    dpSummaryEl.textContent = activeRoute.summary || '';
+    var nextIdx = activeRoute.steps.findIndex(function (s) { return !s.announced; });
+    dpStepsEl.innerHTML = '';
+    var nextLi = null;
+    activeRoute.steps.forEach(function (s, idx) {
+      var li = document.createElement('li');
+      li.style.flexWrap = 'wrap';
+      if (idx === nextIdx) { li.className = 'next-turn'; nextLi = li; }
+      var icon = document.createElement('span');
+      icon.className = 'dp-icon';
+      icon.textContent = iconForSign(s.sign);
+      var text = document.createElement('span');
+      text.textContent = (idx + 1) + '. ' + s.text;
+      var dist = document.createElement('span');
+      dist.className = 'dp-dist';
+      dist.textContent = formatDistanceLong(s.distance);
+      var tpBtn = document.createElement('button');
+      tpBtn.type = 'button';
+      tpBtn.className = 'dp-btn';
+      tpBtn.style.cssText = 'flex-basis:100%;text-align:left;font-size:0.7rem;color:#38bdf8;padding-left:36px;';
+      tpBtn.textContent = '↦ Teleport 600m before this turn';
+      tpBtn.addEventListener('click', function () { teleportBeforeTurn(s); });
+      li.appendChild(icon);
+      li.appendChild(text);
+      li.appendChild(dist);
+      li.appendChild(tpBtn);
+      dpStepsEl.appendChild(li);
+    });
+    if (dpAutoScroll && nextLi && nextIdx !== dpLastScrolledIdx) {
+      dpLastScrolledIdx = nextIdx;
+      nextLi.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+
+  dpAutoScrollBtn.addEventListener('click', function () {
+    dpAutoScroll = !dpAutoScroll;
+    dpAutoScrollBtn.classList.toggle('active', dpAutoScroll);
+  });
+  document.getElementById('directionsToggleBtn').addEventListener('click', function () { toggleDirectionsPanel(); });
+  document.getElementById('hideDirectionsBtnMain').addEventListener('click', function () { toggleDirectionsPanel(false); });
+  document.getElementById('hideDirectionsBtnBig').addEventListener('click', function () { toggleDirectionsPanel(false); });
+  document.getElementById('dpCloseBtn').addEventListener('click', function () { toggleDirectionsPanel(false); });
+
+  /* ---------------------------------------------------------
+     MUTE VOICE
+  --------------------------------------------------------- */
+  var muteBtn = document.getElementById('muteBtn');
+  muteBtn.addEventListener('click', function () {
+    voiceMuted = !voiceMuted;
+    muteBtn.classList.toggle('muted', voiceMuted);
+    muteBtn.querySelector('.bigLetter').textContent = voiceMuted ? '🔇' : '🔊';
+    if (voiceMuted && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+  });
+
+  /* ---------------------------------------------------------
+     HIDE UI (keeps header, minimap, street label, HUDs, overlay buttons)
+  --------------------------------------------------------- */
+  var hideUiBtn = document.getElementById('hideUiBtn');
+  function toggleHideUi() {
+    var hidden = document.body.classList.toggle('ui-hidden');
+    hideUiBtn.classList.toggle('active', hidden);
+    setTimeout(function () { map.resize(); miniMap.invalidateSize(); }, 50);
+  }
+  hideUiBtn.addEventListener('click', toggleHideUi);
+
+  /* ---------------------------------------------------------
+     BIG PANNABLE MAP (press M) — standard OSM Carto, freely pannable
+  --------------------------------------------------------- */
+  var bigMapPanelEl = document.getElementById('bigMapPanel');
+  var bigMapOpen = false;
+  var bigMap = null;
+
+  function ensureBigMap() {
+    if (bigMap) return;
+    bigMap = L.map('bigMap', { zoomControl: true }).setView([car.lat, car.lng], 14);
+    L.control.scale({ position: 'bottomleft', imperial: false, metric: true }).addTo(bigMap);
+    bigMap.createPane('aerialPane');
+    bigMap.getPane('aerialPane').style.zIndex = 200;
+    bigMap.createPane('basePane');
+    bigMap.getPane('basePane').style.zIndex = 300;
+
+    // Both layers stay attached permanently in explicit panes — toggling from here
+    // on is pure opacity control, with no add/remove-layer edge cases and no
+    // ambiguity about which layer renders on top.
+    bigMapAerialLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      { maxZoom: 19, attribution: 'Esri World Imagery', opacity: 0, pane: 'aerialPane' }
+    ).addTo(bigMap);
+    bigMapBaseLayer = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', {
+      maxZoom: 19, maxNativeZoom: 18,
+      attribution: '&copy; OpenStreetMap contributors',
+      opacity: 1,
+      pane: 'basePane'
+    }).addTo(bigMap);
+    bigMapRouteLine = L.polyline([], { color: '#38bdf8', weight: 4, opacity: 0.9 }).addTo(bigMap);
+    bigMapRouteHighlight = L.polyline([], { color: '#facc15', weight: 5, opacity: 0.98 }).addTo(bigMap);
+    bigMapCarMarker = L.marker([car.lat, car.lng]).addTo(bigMap).bindPopup('Your car');
+
+    // Right-click menu: Directions From Here / To Here / Show address
+    bigMap.on('contextmenu', function (e) { showBigMapContextMenu(e); });
+    bigMap.on('movestart zoomstart click', closeBigMapContextMenu);
+    syncBigMapRoute();
+  }
+  var bigMapCarMarker = null;
+  var bigMapAerialLayer = null;
+  var bigMapBaseLayer = null;
+  var bigMapRouteLine = null;
+  var bigMapRouteHighlight = null;
+
+
+  /* ---------------------------------------------------------
+     BIG MAP RIGHT-CLICK MENU
+  --------------------------------------------------------- */
+  var bigMapMenuEl = null;
+  function closeBigMapContextMenu() {
+    if (bigMapMenuEl) { bigMapMenuEl.remove(); bigMapMenuEl = null; }
+  }
+
+  function runDirectionsFromForm() {
+    var form = document.getElementById('directionsForm');
+    if (form.requestSubmit) form.requestSubmit();
+    else form.dispatchEvent(new Event('submit', { cancelable: true }));
+  }
+
+  function showBigMapContextMenu(e) {
+    closeBigMapContextMenu();
+    if (e.originalEvent) e.originalEvent.preventDefault();
+    var latlng = e.latlng;
+    var coordText = latlng.lat.toFixed(6) + ',' + latlng.lng.toFixed(6);
+
+    var menu = document.createElement('div');
+    menu.style.cssText = 'position:absolute;z-index:900;background:#0f172a;border:2px solid #facc15;border-radius:10px;' +
+      'padding:4px;min-width:170px;box-shadow:0 6px 20px rgba(0,0,0,0.5);left:' + e.containerPoint.x + 'px;top:' + e.containerPoint.y + 'px;';
+    function addItem(label, handler) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.style.cssText = 'display:block;width:100%;text-align:left;background:transparent;color:#f1f5f9;border:none;' +
+        'padding:8px 10px;font-size:0.85rem;cursor:pointer;border-radius:6px;font-weight:600;';
+      b.addEventListener('mouseenter', function () { b.style.background = '#1e293b'; });
+      b.addEventListener('mouseleave', function () { b.style.background = 'transparent'; });
+      b.addEventListener('click', function (ev) { ev.stopPropagation(); closeBigMapContextMenu(); handler(); });
+      menu.appendChild(b);
+    }
+
+    addItem('Directions From Here', function () {
+      document.getElementById('fromInput').value = coordText;
+      runDirectionsFromForm();
+    });
+    addItem('Directions To Here', function () {
+      document.getElementById('toInput').value = coordText;
+      runDirectionsFromForm();
+    });
+    addItem('Show address', function () {
+      var popup = L.popup().setLatLng(latlng).setContent('Looking up address…').openOn(bigMap);
+      var url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&lat=' + latlng.lat + '&lon=' + latlng.lng;
+      fetch(url, { headers: { 'Accept': 'application/json' } })
+        .then(function (r) { if (!r.ok) throw new Error('lookup failed (' + r.status + ')'); return r.json(); })
+        .then(function (d) {
+          var safe = document.createElement('div');
+          safe.textContent = d.display_name || 'No address found at this spot.';
+          popup.setContent(safe);
+        })
+        .catch(function (err) { popup.setContent('Could not look up address: ' + err.message); });
+    });
+
+    document.getElementById('bigMapPanel').appendChild(menu);
+    bigMapMenuEl = menu;
+  }
+
+  function syncBigMapRoute() {
+    if (!bigMap || !bigMapRouteLine) return;
+    if (activeRoute && activeRoute.coords) {
+      bigMapRouteLine.setLatLngs(activeRoute.coords.map(function (c) { return [c[1], c[0]]; }));
+    } else {
+      bigMapRouteLine.setLatLngs([]);
+    }
+  }
+
+  function toggleBigMap(forceOpen) {
+    bigMapOpen = typeof forceOpen === 'boolean' ? forceOpen : !bigMapOpen;
+    bigMapPanelEl.classList.toggle('open', bigMapOpen);
+    document.getElementById('bigMapToggleBtn').classList.toggle('active', bigMapOpen);
+    if (bigMapOpen) {
+      ensureBigMap();
+      syncBigMapRoute();
+      setTimeout(function () {
+        bigMap.invalidateSize();
+        bigMap.setView([car.lat, car.lng], bigMap.getZoom());
+        if (bigMapCarMarker) bigMapCarMarker.setLatLng([car.lat, car.lng]);
+      }, 50);
+    }
+  }
+  document.getElementById('bigMapToggleBtn').addEventListener('click', function () { toggleBigMap(); });
+  document.getElementById('bigMapClose').addEventListener('click', function () { toggleBigMap(false); });
+
+  var bigMapFollowing = false;
+  document.getElementById('bigMapCenterBtn').addEventListener('click', function () {
+    ensureBigMap();
+    bigMap.setView([car.lat, car.lng], bigMap.getZoom());
+  });
+  document.getElementById('bigMapRecenterBtn').addEventListener('click', function (e) {
+    ensureBigMap();
+    bigMapFollowing = !bigMapFollowing;
+    e.currentTarget.classList.toggle('active', bigMapFollowing);
+  });
+
+  /* ---------------------------------------------------------
+     AERIAL IMAGERY (Esri World Imagery) — off by default, both maps.
+     Aerial itself always renders at full opacity. The "25% opacity" option
+     fades the MAP on top of it (roads/buildings/terrain for the 3D view,
+     the OSM tile layer for the big map) so the aerial imagery shows through.
+  --------------------------------------------------------- */
+
+  // Base-style layers (everything from the OpenFreeMap style itself, excluding
+  // the custom route/lamp/aerial layers we added) — captured once so we can
+  // fade them and restore their exact original opacity values later.
+  var baseStyleLayerIds = null;
+  var baseStyleOriginalOpacity = {};
+  var CUSTOM_LAYER_IDS = ['route-line', 'route-highlight-line', 'aerial-imagery-layer'];
+
+  function opacityPropsForLayerType(type) {
+    switch (type) {
+      case 'background': return ['background-opacity'];
+      case 'fill': return ['fill-opacity'];
+      case 'line': return ['line-opacity'];
+      case 'fill-extrusion': return ['fill-extrusion-opacity'];
+      case 'raster': return ['raster-opacity'];
+      case 'circle': return ['circle-opacity'];
+      case 'symbol': return ['icon-opacity', 'text-opacity'];
+      default: return [];
+    }
+  }
+
+  function captureBaseStyleLayers() {
+    if (baseStyleLayerIds || !mapReady) return;
+    baseStyleLayerIds = map.getStyle().layers
+      .map(function (l) { return l.id; })
+      .filter(function (id) { return CUSTOM_LAYER_IDS.indexOf(id) === -1; });
+    baseStyleLayerIds.forEach(function (id) {
+      baseStyleOriginalOpacity[id] = {};
+      opacityPropsForLayerType(map.getLayer(id).type).forEach(function (prop) {
+        try { baseStyleOriginalOpacity[id][prop] = map.getPaintProperty(id, prop); } catch (err) { /* not set — fine */ }
+      });
+    });
+  }
+
+  // factor: null = restore original style opacity; a number scales each layer's original opacity by that factor
+  function setBaseMapOpacityFactor(factor) {
+    captureBaseStyleLayers();
+    if (!baseStyleLayerIds) return;
+    baseStyleLayerIds.forEach(function (id) {
+      Object.keys(baseStyleOriginalOpacity[id]).forEach(function (prop) {
+        var orig = baseStyleOriginalOpacity[id][prop];
+        if (factor === null) {
+          // Always issue the call, even when orig is undefined — passing undefined is exactly
+          // how MapLibre clears a runtime override and falls back to the style's own default.
+          // Skipping this call (as a previous version did) left dimmed layers stuck forever.
+          try { map.setPaintProperty(id, prop, orig); } catch (err) { /* ignore */ }
+        } else {
+          var val = (typeof orig === 'number' ? orig : 1) * factor;
+          try { map.setPaintProperty(id, prop, val); } catch (err) { /* ignore */ }
+        }
+      });
+    });
+  }
+
+  function applyMinimapAerial(aerialOn, pct25) {
+    miniMapAerialLayer.setOpacity(aerialOn ? 1 : 0);
+    miniMapBaseLayer.setOpacity(aerialOn ? (pct25 ? 0.25 : 0) : 1);
+    miniMapAerialLayer.redraw();
+    miniMapBaseLayer.redraw();
+  }
+
+  // Main driving view's aerial control affects: the 3D map itself + the minimap (both are
+  // part of "the area where you drive the car"). It does NOT touch the big pannable map (M).
+  function updateAerialModeMain() {
+    if (!mapReady || !map.getLayer('aerial-imagery-layer')) return;
+    var aerialOn = document.getElementById('aerialToggleMain').checked;
+    var pct25 = document.getElementById('aerialOpacityMain').checked;
+    map.setLayoutProperty('aerial-imagery-layer', 'visibility', aerialOn ? 'visible' : 'none');
+    map.setPaintProperty('aerial-imagery-layer', 'raster-opacity', 1); // aerial always stays fully opaque
+    setBaseMapOpacityFactor(aerialOn ? (pct25 ? 0.25 : 0) : null);
+    applyMinimapAerial(aerialOn, pct25);
+  }
+  document.getElementById('aerialToggleMain').addEventListener('change', updateAerialModeMain);
+  document.getElementById('aerialOpacityMain').addEventListener('change', updateAerialModeMain);
+
+  // Big map's aerial control affects ONLY the big map — fully independent from the driving view.
+  function updateAerialModeBig() {
+    ensureBigMap();
+    var aerialOn = document.getElementById('aerialToggleBig').checked;
+    var pct25 = document.getElementById('aerialOpacityBig').checked;
+    bigMapAerialLayer.setOpacity(aerialOn ? 1 : 0); // aerial always fully opaque when shown
+    bigMapBaseLayer.setOpacity(aerialOn ? (pct25 ? 0.25 : 0) : 1);
+    bigMapAerialLayer.redraw();
+    bigMapBaseLayer.redraw();
+  }
+  document.getElementById('aerialToggleBig').addEventListener('change', updateAerialModeBig);
+  document.getElementById('aerialOpacityBig').addEventListener('change', updateAerialModeBig);
+
+
+  /* ---------------------------------------------------------
+     AUTODRIVE (press F) — snaps exactly onto the route path (no steering error, no circling)
+  --------------------------------------------------------- */
+  var autodriveOn = false;
+  var autodriveTargetKmh = 350;
+  var autodriveBtn = document.getElementById('autodriveBtn');
+  var autodriveSpeedSlider = document.getElementById('autodriveSpeed');
+  var autodriveSpeedVal = document.getElementById('autodriveSpeedVal');
+
+  autodriveSpeedSlider.addEventListener('input', function () {
+    autodriveTargetKmh = parseFloat(autodriveSpeedSlider.value);
+    autodriveSpeedVal.textContent = Math.round(autodriveTargetKmh) + ' km/h';
+  });
+
+  var autodriveMode = 'route'; // 'route' or 'wander'
+
+  function toggleAutodrive(forceOn) {
+    var turningOn = typeof forceOn === 'boolean' ? forceOn : !autodriveOn;
+    autodriveOn = turningOn;
+    autodriveBtn.classList.toggle('active', autodriveOn);
+    if (autodriveOn) {
+      if (activeRoute && activeRoute.coords && activeRoute.coords.length) {
+        autodriveMode = 'route';
+        var idx = nearestRouteIndex(activeRoute.coords, car.lat, car.lng);
+        activeRoute.progressM = activeRoute.cumDist[idx];
+        announceDrive('Autodrive engaged (following route) at ' + Math.round(autodriveTargetKmh) + ' ' + speedUnitLabel() + '.');
+      } else {
+        autodriveMode = 'wander';
+        startWander();
+        announceDrive('Autodrive engaged (wandering roads) at ' + Math.round(autodriveTargetKmh) + ' ' + speedUnitLabel() + '.');
+      }
+    } else {
+      announceDrive('Autodrive disengaged.');
+    }
+  }
+  autodriveBtn.addEventListener('click', function () { toggleAutodrive(); });
+
+  function nearestRouteIndex(coords, lat, lng) {
+    var bestIdx = 0, bestD = Infinity;
+    for (var i = 0; i < coords.length; i++) {
+      var d = distanceMeters(lat, lng, coords[i][1], coords[i][0]);
+      if (d < bestD) { bestD = d; bestIdx = i; }
+    }
+    return bestIdx;
+  }
+
+  // Given how far along the route we are (in meters), find the exact interpolated point on the
+  // road and the bearing of that segment. This is what makes the car snap perfectly onto the
+  // route with zero steering error — there is nothing to "circle" because we never simulate
+  // heading/position drift during autodrive; we place the car exactly where the road says.
+  function pointAtProgress(coords, cumDist, progressM) {
+    var lo = 0, hi = cumDist.length - 1;
+    while (lo < hi - 1) {
+      var mid = (lo + hi) >> 1;
+      if (cumDist[mid] <= progressM) lo = mid; else hi = mid;
+    }
+    var segLen = cumDist[hi] - cumDist[lo];
+    var t = segLen > 0 ? (progressM - cumDist[lo]) / segLen : 0;
+    var a = coords[lo], b = coords[hi];
+    return {
+      lat: a[1] + (b[1] - a[1]) * t,
+      lng: a[0] + (b[0] - a[0]) * t,
+      bearing: bearingBetween(a[1], a[0], b[1], b[0])
+    };
+  }
+
+  var AUTODRIVE_BRAKE_DECEL = 5; // m/s^2 — comfortable smooth braking curve into the destination
+
+  function runAutodrive(dt) {
+    var remainingM = Math.max(0, activeRoute.totalLen - activeRoute.progressM);
+    var cruiseSpeed = autodriveTargetKmh / 3.6;
+    // Cap speed so a braking distance at AUTODRIVE_BRAKE_DECEL naturally reaches 0 exactly at the end
+    var maxSpeedForRemaining = Math.sqrt(2 * AUTODRIVE_BRAKE_DECEL * remainingM);
+    var targetSpeed = Math.min(cruiseSpeed, maxSpeedForRemaining);
+
+    if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + car.accel * dt);
+    else car.speed = Math.max(targetSpeed, car.speed - AUTODRIVE_BRAKE_DECEL * dt);
+
+    var stepM = Math.min(car.speed * dt, remainingM);
+    activeRoute.progressM += stepM;
+    totalDistanceM += Math.abs(stepM);
+
+    if (activeRoute.progressM >= activeRoute.totalLen - 0.5) {
+      var lastPt = activeRoute.coords[activeRoute.coords.length - 1];
+      car.lat = lastPt[1]; car.lng = lastPt[0];
+      car.speed = 0;
+      toggleAutodrive(false);
+      return;
+    }
+
+    var pt = pointAtProgress(activeRoute.coords, activeRoute.cumDist, activeRoute.progressM);
+    car.lat = pt.lat;
+    car.lng = pt.lng;
+    car.heading = pt.bearing;
+  }
+
+  /* ---------------------------------------------------------
+     WANDER AUTODRIVE — no route set: follows real OSM roads, mostly
+     straight through junctions, occasionally turning at random.
+     Simplification: junctions are detected by matching way ENDPOINTS
+     only (not mid-way T-junctions), using live Overpass road data.
+  --------------------------------------------------------- */
+  var WANDER_HIGHWAY_TYPES = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|' +
+    'motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|living_street|service|' +
+    'pedestrian|track|bus_guideway|escape|raceway|road|busway';
+  // Ferries never carry a highway=* tag (they're route=ferry instead), so this filter excludes them automatically.
+
+  var wanderWays = {}; // id -> { coords: [[lng,lat], ...], tags }
+  var wanderFetchInFlight = false;
+  var lastWanderFetchTime = 0;
+  var pendingWanderCallbacks = [];
+  var wanderState = null; // { wayId, traversal: [[lng,lat],...], cumDist, totalLen, progressM }
+  var wanderStarting = false;
+  var WANDER_JUNCTION_THRESHOLD_M = 20;
+  var WANDER_STRAIGHT_BEARING_TOLERANCE = 35;
+  var WANDER_PRUNE_RADIUS_M = 4000; // "delete tiles behind you" — drop road data once it's this far away
+
+  function pruneWanderWays() {
+    Object.keys(wanderWays).forEach(function (id) {
+      var coords = wanderWays[id].coords;
+      var mid = coords[Math.floor(coords.length / 2)];
+      if (distanceMeters(car.lat, car.lng, mid[1], mid[0]) > WANDER_PRUNE_RADIUS_M) {
+        delete wanderWays[id];
+      }
+    });
+  }
+
+  function fetchWanderRoadsNearby(callback) {
+    var now = Date.now();
+    if (wanderFetchInFlight) {
+      // A fetch is already in progress — queue this callback to run once real data arrives,
+      // instead of firing immediately against a still-empty cache (that race was the bug
+      // that made autodrive silently disengage the instant you turned it on).
+      if (callback) pendingWanderCallbacks.push(callback);
+      return;
+    }
+    if ((now - lastWanderFetchTime) < 8000) { if (callback) callback(); return; }
+
+    var b = map.getBounds(); // MapLibre bounds — no .pad() method, so expand manually
+    var latPad = (b.getNorth() - b.getSouth()) * 0.3;
+    var lngPad = (b.getEast() - b.getWest()) * 0.3;
+    var bbox = (b.getSouth() - latPad) + ',' + (b.getWest() - lngPad) + ',' + (b.getNorth() + latPad) + ',' + (b.getEast() + lngPad);
+    var query = '[out:json][timeout:20];way["highway"~"^(' + WANDER_HIGHWAY_TYPES + ')$"](' + bbox + ');out geom;';
+    wanderFetchInFlight = true;
+    lastWanderFetchTime = now;
+    fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(query) })
+      .then(function (r) { if (!r.ok) throw new Error('Overpass request failed (' + r.status + ')'); return r.json(); })
+      .then(function (data) {
+        (data.elements || []).forEach(function (way) {
+          if (!way.geometry || way.geometry.length < 2) return;
+          wanderWays[way.id] = {
+            coords: way.geometry.map(function (g) { return [g.lon, g.lat]; }),
+            tags: way.tags || {}
+          };
+        });
+        pruneWanderWays();
+      })
+      .catch(function (err) { console.warn('Wander road fetch failed:', err.message); })
+      .finally(function () {
+        wanderFetchInFlight = false;
+        var toRun = [callback].concat(pendingWanderCallbacks);
+        pendingWanderCallbacks = [];
+        toRun.forEach(function (cb) { if (cb) cb(); });
+      });
+  }
+
+  function findNearestWanderPoint(lat, lng) {
+    var bestId = null, bestIdx = 0, bestD = Infinity;
+    Object.keys(wanderWays).forEach(function (id) {
+      var coords = wanderWays[id].coords;
+      for (var i = 0; i < coords.length; i++) {
+        var d = distanceMeters(lat, lng, coords[i][1], coords[i][0]);
+        if (d < bestD) { bestD = d; bestId = id; bestIdx = i; }
+      }
+    });
+    return bestId !== null ? { wayId: bestId, idx: bestIdx } : null;
+  }
+
+  function buildWanderSegment(wayId, coords, dir, startProgressM) {
+    var traversal = dir === 1 ? coords : coords.slice().reverse();
+    var cum = [0];
+    for (var i = 1; i < traversal.length; i++) {
+      cum.push(cum[i - 1] + distanceMeters(traversal[i - 1][1], traversal[i - 1][0], traversal[i][1], traversal[i][0]));
+    }
+    return { wayId: wayId, traversal: traversal, cumDist: cum, totalLen: cum[cum.length - 1], progressM: startProgressM || 0 };
+  }
+
+  function startWander() {
+    if (wanderStarting) return; // already fetching/starting — don't stack up duplicate attempts
+    wanderStarting = true;
+    announceDrive('Loading nearby roads for autodrive…');
+    fetchWanderRoadsNearby(function () {
+      wanderStarting = false;
+      var near = findNearestWanderPoint(car.lat, car.lng);
+      if (!near) {
+        showError('No nearby road data found for wandering. Try again, or move closer to a mapped road first.');
+        toggleAutodrive(false);
+        return;
+      }
+      var w = wanderWays[near.wayId];
+      var seg = buildWanderSegment(near.wayId, w.coords, 1, 0);
+      // Start progress at the nearest point found, not necessarily the way's beginning
+      var cumAtIdx = 0;
+      for (var i = 1; i <= near.idx; i++) {
+        cumAtIdx += distanceMeters(w.coords[i - 1][1], w.coords[i - 1][0], w.coords[i][1], w.coords[i][0]);
+      }
+      seg.progressM = cumAtIdx;
+      wanderState = seg;
+      announceDrive('Autodrive wandering nearby roads.');
+    });
+  }
+
+  // Find ways whose endpoint sits within the junction threshold of (lat,lng), excluding the way we just came from
+  function findWanderConnections(lat, lng, excludeWayId) {
+    var results = [];
+    Object.keys(wanderWays).forEach(function (id) {
+      if (id === excludeWayId) return;
+      var coords = wanderWays[id].coords;
+      var first = coords[0], last = coords[coords.length - 1];
+      if (distanceMeters(lat, lng, first[1], first[0]) < WANDER_JUNCTION_THRESHOLD_M) {
+        results.push({ wayId: id, coords: coords, dir: 1 });
+      }
+      if (coords.length > 1 && distanceMeters(lat, lng, last[1], last[0]) < WANDER_JUNCTION_THRESHOLD_M) {
+        results.push({ wayId: id, coords: coords, dir: -1 });
+      }
+    });
+    return results;
+  }
+
+  function handleWanderJunction() {
+    var endPt = wanderState.traversal[wanderState.traversal.length - 1];
+    var conns = findWanderConnections(endPt[1], endPt[0], wanderState.wayId);
+
+    if (conns.length === 0) {
+      // Dead end — forced U-turn back along the same way
+      wanderState = buildWanderSegment(wanderState.wayId, wanderState.traversal.slice().reverse(), 1, 0);
+      announceDrive('Dead end — turning around.');
+      return;
+    }
+
+    var currentBearing = car.heading;
+    var straightOpt = null, straightDiff = 999;
+    conns.forEach(function (c) {
+      var p0 = c.dir === 1 ? c.coords[0] : c.coords[c.coords.length - 1];
+      var p1 = c.dir === 1 ? c.coords[1] : c.coords[c.coords.length - 2];
+      var b = bearingBetween(p0[1], p0[0], p1[1], p1[0]);
+      var diff = Math.abs(((b - currentBearing + 540) % 360) - 180);
+      c._diff = diff;
+      if (diff < straightDiff) { straightDiff = diff; straightOpt = c; }
+    });
+
+    var chosen;
+    var hasStraight = straightOpt && straightDiff <= WANDER_STRAIGHT_BEARING_TOLERANCE;
+    if (hasStraight) {
+      if (conns.length === 1 || Math.random() < 0.75) {
+        chosen = straightOpt; // go straight 75% of the time when it's an option
+      } else {
+        var others = conns.filter(function (c) { return c !== straightOpt; });
+        chosen = others[Math.floor(Math.random() * others.length)]; // 25%: random turn instead
+      }
+    } else {
+      // No straight option at this junction — a turn is forced, chosen randomly among what's available
+      chosen = conns[Math.floor(Math.random() * conns.length)];
+    }
+    wanderState = buildWanderSegment(chosen.wayId, chosen.coords, chosen.dir, 0);
+  }
+
+  function runWanderDrive(dt) {
+    if (!wanderState) { startWander(); return; }
+
+    var targetSpeed = autodriveTargetKmh / 3.6;
+    if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + car.accel * dt);
+    else car.speed = Math.max(targetSpeed, car.speed - car.friction * dt);
+
+    wanderState.progressM += car.speed * dt;
+    totalDistanceM += Math.abs(car.speed * dt);
+
+    if (wanderState.progressM >= wanderState.totalLen - 0.5) {
+      handleWanderJunction();
+      return; // new segment takes effect next tick
+    }
+
+    var pt = pointAtProgress(wanderState.traversal, wanderState.cumDist, wanderState.progressM);
+    car.lat = pt.lat;
+    car.lng = pt.lng;
+    car.heading = pt.bearing;
+
+    // Keep expanding the road cache as we explore new areas
+    if (Math.random() < 0.02) fetchWanderRoadsNearby();
+  }
+
+  /* ---------------------------------------------------------
+     INPUT
+  --------------------------------------------------------- */
+  var input = { up: false, down: false, left: false, right: false };
+
+  function setKey(key, val) {
+    var map2 = { ArrowUp: 'up', w: 'up', W: 'up',
+                 ArrowDown: 'down', s: 'down', S: 'down',
+                 ArrowLeft: 'left', a: 'left', A: 'left',
+                 ArrowRight: 'right', d: 'right', D: 'right' };
+    if (map2[key]) { input[map2[key]] = val; return true; }
+    return false;
+  }
+  var TEXT_INPUT_TYPES = ['text', 'password', 'search', 'email', 'number', 'tel', 'url'];
+  function isTypingTarget(el) {
+    if (!el) return false;
+    var tag = el.tagName;
+    if (tag === 'TEXTAREA' || el.isContentEditable) return true;
+    if (tag === 'INPUT') return TEXT_INPUT_TYPES.indexOf((el.type || 'text').toLowerCase()) !== -1;
+    return tag === 'SELECT';
+  }
+
+  var driveStatusEl = document.getElementById('driveStatus');
+  function announceDrive(msg) { driveStatusEl.textContent = msg; }
+
+  function toggleFullscreen() {
+    var el = document.documentElement;
+    var isFs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (!isFs) {
+      var req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) req.call(el);
+    } else {
+      var exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (exit) exit.call(document);
+    }
+  }
+  document.getElementById('fullscreenBtn').addEventListener('click', toggleFullscreen);
+
+  window.addEventListener('keydown', function (e) {
+    if (isTypingTarget(e.target)) return;
+    if (e.code === 'Space') { car.speed = 0; if (autodriveOn) toggleAutodrive(false); e.preventDefault(); announceDrive('Stopped.'); return; }
+    if (e.key === 'm' || e.key === 'M') { e.preventDefault(); toggleBigMap(); return; }
+    if (e.key === 'n' || e.key === 'N') { e.preventDefault(); toggleDirectionsPanel(); return; }
+    if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleAutodrive(); return; }
+    if (e.key === 'k' || e.key === 'K') { e.preventDefault(); toggleFullscreen(); return; }
+    if (e.key === 'h' || e.key === 'H') { e.preventDefault(); toggleHideUi(); return; }
+    if (setKey(e.key, true)) {
+      if (autodriveOn) toggleAutodrive(false); // manual steering/throttle hands control back from autopilot
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('keyup', function (e) {
+    if (isTypingTarget(e.target)) return;
+    if (setKey(e.key, false)) e.preventDefault();
+  });
+
+  function wireHoldButton(id, onDown, onUp) {
+    var btn = document.getElementById(id);
+    btn.addEventListener('pointerdown', function (e) { onDown(); btn.setPointerCapture && btn.setPointerCapture(e.pointerId); });
+    btn.addEventListener('pointerup', onUp);
+    btn.addEventListener('pointerleave', onUp);
+    btn.addEventListener('pointercancel', onUp);
+    btn.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') onDown(); });
+    btn.addEventListener('keyup', function (e) { if (e.key === 'Enter' || e.key === ' ') onUp(); });
+  }
+  function disengageAutodriveIfOn() { if (autodriveOn) toggleAutodrive(false); }
+  wireHoldButton('btnUp', function () { disengageAutodriveIfOn(); input.up = true; }, function () { input.up = false; });
+  wireHoldButton('btnDown', function () { disengageAutodriveIfOn(); input.down = true; }, function () { input.down = false; });
+  wireHoldButton('btnLeft', function () { disengageAutodriveIfOn(); input.left = true; }, function () { input.left = false; });
+  wireHoldButton('btnRight', function () { disengageAutodriveIfOn(); input.right = true; }, function () { input.right = false; });
+  document.getElementById('btnStop').addEventListener('click', function () { car.speed = 0; if (autodriveOn) toggleAutodrive(false); announceDrive('Stopped.'); });
+
+  var pitchSlider = document.getElementById('pitchSlider');
+  var currentPitch = parseFloat(pitchSlider.value);
+  pitchSlider.addEventListener('input', function () { currentPitch = parseFloat(pitchSlider.value); });
+
+  /* ---------------------------------------------------------
+     GAME LOOP — camera rotates + tilts with the car (chase view)
+  --------------------------------------------------------- */
+  var lastTick = performance.now();
+  var lastMiniMapRecenter = 0;
+  var lastBigMapSync = 0;
+  var DRIVE_ZOOM_BASE = 16.6;
+
+  function tick(now) {
+    var dt = Math.min((now - lastTick) / 1000, 0.25);
+    lastTick = now;
+
+    if (autodriveOn && autodriveMode === 'route' && activeRoute) {
+      runAutodrive(dt);
+    } else if (autodriveOn && autodriveMode === 'wander') {
+      runWanderDrive(dt);
+    } else {
+      if (input.up) car.speed += car.accel * dt;
+      else if (input.down) car.speed -= car.brakeAccel * dt;
+      else {
+        if (car.speed > 0) car.speed = Math.max(0, car.speed - car.friction * dt);
+        else if (car.speed < 0) car.speed = Math.min(0, car.speed + car.friction * dt);
+      }
+      car.speed = Math.max(car.maxReverse, Math.min(car.maxSpeed, car.speed));
+
+      var turnFactor = Math.min(1, Math.abs(car.speed) / 3 + 0.15);
+      if (input.left) car.heading -= car.turnRate * dt * turnFactor;
+      if (input.right) car.heading += car.turnRate * dt * turnFactor;
+      car.heading = ((car.heading % 360) + 360) % 360;
+
+      if (Math.abs(car.speed) > 0.01) {
+        var distM = car.speed * dt;
+        var moveBearing = car.speed >= 0 ? car.heading : (car.heading + 180) % 360;
+        var p = destPoint(car.lat, car.lng, moveBearing, Math.abs(distM));
+        car.lat = p.lat; car.lng = p.lng;
+        totalDistanceM += Math.abs(distM);
+      }
+    }
+
+    // carEl is a fixed screen overlay now — no per-frame map projection needed, which is exactly
+    // what eliminates the terrain-related drift between the car icon and the camera.
+
+    if (mapReady) {
+      // A constant zoom, not tied to speed — the earlier speed-based formula caused jarring
+      // zoom swings (zoomed way out at cruising speed, then zoomed back in tight near a stop).
+      map.jumpTo({ center: [car.lng, car.lat], bearing: car.heading, pitch: currentPitch, zoom: DRIVE_ZOOM_BASE });
+    }
+
+    // Minimap: stays north-up always; only the heading arrow rotates. Throttled recenter for perf.
+    miniCarMarker.setLatLng([car.lat, car.lng]);
+    if (miniCarArrowEl) miniCarArrowEl.style.transform = 'rotate(' + car.heading + 'deg)';
+    if (now - lastMiniMapRecenter > 200) {
+      lastMiniMapRecenter = now;
+      miniMap.setView([car.lat, car.lng], miniMap.getZoom(), { animate: false });
+    }
+    if (bigMapOpen && bigMap && now - lastBigMapSync > 400) {
+      lastBigMapSync = now;
+      if (bigMapCarMarker) bigMapCarMarker.setLatLng([car.lat, car.lng]);
+      if (bigMapFollowing) bigMap.setView([car.lat, car.lng], bigMap.getZoom(), { animate: false });
+    }
+    if (Math.abs(car.speed) > 0.1) maybeUpdateStreetLabel();
+    checkTurnByTurn();
+
+    var speedDisplay = formatSpeed(car.speed);
+    document.getElementById('speedHudValue').textContent = speedDisplay;
+    document.getElementById('speedVal').textContent = speedDisplay + ' ' + speedUnitLabel();
+    document.getElementById('headingVal').textContent = Math.round(car.heading) + '°';
+    document.getElementById('distVal').textContent = formatDistanceShort(totalDistanceM) + ' ' + distanceUnitLabel(true);
+    document.getElementById('distanceHudValue').textContent = formatDistanceShort(totalDistanceM);
+
+    var turnDistEl = document.getElementById('turnDistanceHudValue');
+    if (activeRoute) {
+      var nextStep = activeRoute.steps.find(function (s) { return !s.announced; });
+      if (nextStep) {
+        turnDistEl.textContent = formatDistanceLong(distanceMeters(car.lat, car.lng, nextStep.lat, nextStep.lng));
+      } else {
+        turnDistEl.textContent = formatDistanceLong(Math.max(0, activeRoute.totalLen - activeRoute.progressM || distanceMeters(car.lat, car.lng, activeRoute.destLat, activeRoute.destLng)));
+      }
+    } else {
+      turnDistEl.textContent = '–';
+    }
+
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  function bearingBetween(lat1, lng1, lat2, lng2) {
+    var φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180, Δλ = (lng2 - lng1) * Math.PI / 180;
+    var y = Math.sin(Δλ) * Math.cos(φ2);
+    var x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+
+  /* ---------------------------------------------------------
+     SEARCH (Nominatim)
+  --------------------------------------------------------- */
+  var searchForm = document.getElementById('searchForm');
+  var searchInput = document.getElementById('searchInput');
+  var searchResults = document.getElementById('searchResults');
+
+  function nominatimSearch(query) {
+    var url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=0&limit=6&q=' + encodeURIComponent(query);
+    return fetch(url, { headers: { 'Accept': 'application/json' } }).then(function (r) {
+      if (!r.ok) throw new Error('Search request failed (' + r.status + ')');
+      return r.json();
+    });
+  }
+
+  searchForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var q = searchInput.value.trim();
+    if (!q) return;
+    searchResults.innerHTML = '<li>Searching…</li>';
+    nominatimSearch(q).then(function (results) {
+      searchResults.innerHTML = '';
+      if (!results.length) { searchResults.innerHTML = '<li>No results found.</li>'; return; }
+      results.forEach(function (place) {
+        var li = document.createElement('li');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.setAttribute('role', 'option');
+        btn.textContent = place.display_name;
+        btn.addEventListener('click', function () {
+          var lat = parseFloat(place.lat), lon = parseFloat(place.lon);
+          teleportCarTo(lat, lon);
+          announceDrive('Teleported to: ' + place.display_name);
+        });
+        li.appendChild(btn);
+        searchResults.appendChild(li);
+      });
+    }).catch(function (err) {
+      searchResults.innerHTML = '';
+      showError('Search error: ' + err.message);
+    });
+  });
+
+  /* ---------------------------------------------------------
+     DIRECTIONS (GraphHopper)
+  --------------------------------------------------------- */
+  var ghKeyInput = document.getElementById('ghKey');
+  var storedGhKey = (localStorage.getItem('gh_api_key') || '').trim();
+  ghKeyInput.value = storedGhKey || '573b855b-3b94-444a-bacd-04c9564c9fb4';
+  ghKeyInput.addEventListener('change', function () {
+    localStorage.setItem('gh_api_key', ghKeyInput.value.trim());
+  });
+
+  document.getElementById('useCarBtn').addEventListener('click', function () {
+    document.getElementById('fromInput').value = car.lat.toFixed(5) + ',' + car.lng.toFixed(5);
+  });
+
+  /* ---------------------------------------------------------
+     COORDINATE TOOLS
+  --------------------------------------------------------- */
+  var coordsInput = document.getElementById('coordsInput');
+  var coordsSavedNote = document.getElementById('coordsSavedNote');
+  var savedCoords = localStorage.getItem('saved_car_coords');
+  if (savedCoords) coordsInput.value = savedCoords;
+
+  document.getElementById('copyCoordsBtn').addEventListener('click', function () {
+    var text = car.lat.toFixed(6) + ', ' + car.lng.toFixed(6);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        coordsSavedNote.textContent = 'Copied current coordinates.';
+        setTimeout(function () { coordsSavedNote.textContent = ''; }, 3000);
+      }).catch(function () { showError('Could not copy — try selecting the text manually.'); });
+    } else {
+      showError('Clipboard access is not available in this browser.');
+    }
+  });
+
+  document.getElementById('getCoordsBtn').addEventListener('click', function () {
+    var text = car.lat.toFixed(6) + ', ' + car.lng.toFixed(6);
+    coordsInput.value = text;
+    localStorage.setItem('saved_car_coords', text);
+    coordsSavedNote.textContent = 'Saved: ' + text;
+    setTimeout(function () { coordsSavedNote.textContent = ''; }, 4000);
+  });
+
+  document.getElementById('pasteCoordsBtn').addEventListener('click', function () {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(function (text) {
+        coordsInput.value = text.trim();
+      }).catch(function () { showError('Could not read clipboard — try pasting manually into the field.'); });
+    } else {
+      showError('Clipboard access is not available in this browser.');
+    }
+  });
+
+  document.getElementById('teleportCoordsBtn').addEventListener('click', function () {
+    var m = coordsInput.value.trim().match(/^(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)$/);
+    if (!m) { showError('Enter coordinates as "lat, lng" (e.g. 51.0447, -114.0719).'); return; }
+    var lat = parseFloat(m[1]), lng = parseFloat(m[3]);
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) { showError('Coordinates out of range.'); return; }
+    teleportCarTo(lat, lng);
+    announceDrive('Teleported to ' + lat.toFixed(5) + ', ' + lng.toFixed(5));
+  });
+
+  document.getElementById('invertBtn').addEventListener('click', function () {
+    var fromEl = document.getElementById('fromInput'), toEl = document.getElementById('toInput');
+    var tmp = fromEl.value;
+    fromEl.value = toEl.value;
+    toEl.value = tmp;
+  });
+
+  document.getElementById('teleportFromBtn').addEventListener('click', function () {
+    var fromText = document.getElementById('fromInput').value.trim();
+    if (!fromText) { showError('Enter a "From" location first.'); return; }
+    geocodeOne(fromText).then(function (pt) {
+      teleportCarTo(pt.lat, pt.lon);
+      announceDrive('Teleported to: ' + pt.display_name);
+    }).catch(function (err) { showError(err.message); });
+  });
+
+  document.getElementById('teleportToBtn').addEventListener('click', function () {
+    var toText = document.getElementById('toInput').value.trim();
+    if (!toText) { showError('Enter a "To" location first.'); return; }
+    geocodeOne(toText).then(function (pt) {
+      teleportCarTo(pt.lat, pt.lon);
+      announceDrive('Teleported to: ' + pt.display_name);
+    }).catch(function (err) { showError(err.message); });
+  });
+
+  function geocodeOne(text) {
+    var coordMatch = text.trim().match(/^(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)$/);
+    if (coordMatch) {
+      return Promise.resolve({ lat: parseFloat(coordMatch[1]), lon: parseFloat(coordMatch[3]), display_name: text });
+    }
+    return nominatimSearch(text).then(function (results) {
+      if (!results.length) throw new Error('Could not find location: ' + text);
+      return { lat: parseFloat(results[0].lat), lon: parseFloat(results[0].lon), display_name: results[0].display_name };
+    });
+  }
+
+  var directionsForm = document.getElementById('directionsForm');
+  var routeSummary = document.getElementById('routeSummary');
+  var routeSteps = document.getElementById('routeSteps');
+
+  directionsForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var key = ghKeyInput.value.trim();
+    if (!key) { showError('Please enter a GraphHopper API key first (see link above).'); return; }
+    var fromText = document.getElementById('fromInput').value.trim() || (car.lat.toFixed(5) + ',' + car.lng.toFixed(5));
+    var toText = document.getElementById('toInput').value.trim();
+    if (!toText) { showError('Please enter a destination.'); return; }
+
+    routeSummary.textContent = 'Looking up locations…';
+    routeSteps.innerHTML = '';
+
+    Promise.all([geocodeOne(fromText), geocodeOne(toText)]).then(function (pts) {
+      var from = pts[0], to = pts[1];
+      routeSummary.textContent = 'Calculating route…';
+      var url = 'https://graphhopper.com/api/1/route?point=' + from.lat + ',' + from.lon +
+                 '&point=' + to.lat + ',' + to.lon +
+                 '&vehicle=car&locale=en&points_encoded=false&instructions=true&key=' + encodeURIComponent(key);
+      return fetch(url).then(function (r) {
+        if (!r.ok) {
+          return r.json().catch(function () { return {}; }).then(function (body) {
+            throw new Error(body.message || ('Routing request failed (' + r.status + ')'));
+          });
+        }
+        return r.json();
+      });
+    }).then(function (data) {
+      if (!data.paths || !data.paths.length) throw new Error('No route found.');
+      var path = data.paths[0];
+
+      var lineFeature = { type: 'Feature', geometry: path.points, properties: {} };
+      if (mapReady && map.getSource('route')) {
+        map.getSource('route').setData({ type: 'FeatureCollection', features: [lineFeature] });
+      }
+      var coords = path.points.coordinates;
+      miniRouteLine.setLatLngs(coords.map(function (c) { return [c[1], c[0]]; }));
+      syncBigMapRoute();
+
+      var bounds = coords.reduce(function (b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(coords[0], coords[0]));
+      map.fitBounds(bounds, { padding: 60, pitch: currentPitch, duration: 800 });
+
+      var distKm = (path.distance / 1000).toFixed(1);
+      var timeMin = Math.round(path.time / 60000);
+      routeSummary.textContent = formatDistanceLong(path.distance) + ', about ' + timeMin + ' min by car.';
+
+      var steps = (path.instructions || []).map(function (instr) {
+        var pointIdx = instr.interval && instr.interval.length ? instr.interval[0] : 0;
+        var c = coords[pointIdx] || coords[0];
+        return {
+          lat: c[1], lng: c[0], text: instr.text, distance: instr.distance, sign: instr.sign,
+          pointIdx: pointIdx,
+          announced: false, passedAtOdometer: null,
+          highlightCoords: subPathAround(coords, pointIdx, HIGHLIGHT_WINDOW_M)
+        };
+      });
+      var destCoord = coords[coords.length - 1];
+      var cumDist = [0];
+      for (var ci = 1; ci < coords.length; ci++) {
+        cumDist.push(cumDist[ci - 1] + distanceMeters(coords[ci - 1][1], coords[ci - 1][0], coords[ci][1], coords[ci][0]));
+      }
+      activeRoute = {
+        steps: steps, destLat: destCoord[1], destLng: destCoord[0], arrived: false,
+        coords: coords, cumDist: cumDist, totalLen: cumDist[cumDist.length - 1],
+        progressM: 0, autoIdx: 0,
+        totalDistanceRawM: path.distance, totalTimeMin: timeMin
+      };
+      activeRoute.summary = formatDistanceLong(activeRoute.totalDistanceRawM) + ', about ' + timeMin + ' min by car.';
+      updateRouteHighlight(null);
+      dpLastScrolledIdx = -1;
+
+      routeSteps.innerHTML = '';
+      activeRoute.steps.forEach(function (s) {
+        var li = document.createElement('li');
+        var span = document.createElement('span');
+        span.className = 'step-text';
+        var stepDist = formatDistanceLong(s.distance);
+        span.textContent = s.text + (s.distance > 0 ? ' — ' + stepDist : '');
+        li.appendChild(span);
+        var tpBtn = document.createElement('button');
+        tpBtn.type = 'button';
+        tpBtn.className = 'secondary';
+        tpBtn.style.cssText = 'display:block;margin-top:4px;font-size:0.7rem;padding:3px 8px;';
+        tpBtn.textContent = '↦ Teleport 600m before';
+        tpBtn.addEventListener('click', function () { teleportBeforeTurn(s); });
+        li.appendChild(tpBtn);
+        routeSteps.appendChild(li);
+      });
+
+      renderDirectionsPanel();
+      announceDrive('Route ready: ' + formatDistanceLong(activeRoute.totalDistanceRawM) + '.');
+    }).catch(function (err) {
+      routeSummary.textContent = '';
+      showError(err.message);
+    });
+  });
+}
+
+function loadScript(src, onload, onerror) {
+  var s = document.createElement('script');
+  s.src = src;
+  s.crossOrigin = 'anonymous';
+  s.onload = onload;
+  s.onerror = onerror;
+  document.head.appendChild(s);
+}
+
+function showFatalError(msg) {
+  var el = document.getElementById('errorLog');
+  if (el) el.textContent = msg;
+  console.error(msg);
+}
+
+window.addEventListener('error', function (e) {
+  var detail = e.message || 'Unknown error';
+  if (e.filename) detail += ' (' + e.filename + (e.lineno ? ':' + e.lineno : '') + ')';
+  showFatalError('An error occurred while starting the app: ' + detail);
+});
+
+function startApp() {
+  if (typeof maplibregl === 'undefined') {
+    showFatalError('Could not load the map library from either CDN. Check your internet connection, ' +
+      'or try disabling ad blockers/VPN for this page.');
+    return;
+  }
+  try {
+    initApp();
+  } catch (err) {
+    showFatalError('The app failed to start: ' + (err && err.message ? err.message : err) +
+      '. If this mentions "Worker", open this file directly in its own browser tab instead of an embedded preview.');
+  }
+}
+
+loadScript(
+  'https://cdn.jsdelivr.net/npm/maplibre-gl@4.5.0/dist/maplibre-gl.js',
+  startApp,
+  function () {
+    loadScript('https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.js', startApp, startApp);
+  }
+);
+</script>
+
+</body>
+</html>
