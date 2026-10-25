@@ -793,8 +793,14 @@ function initApp() {
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     { maxZoom: 19, attribution: 'Esri World Imagery', opacity: 0, pane: 'aerialPane' }
   ).addTo(miniMap);
-  var miniMapBaseLayer = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', {
-    maxZoom: 19, maxNativeZoom: 18,
+  // Served over http(s) (e.g. GitHub Pages) the browser sends a Referer, so OSM's main tile server accepts us.
+  // Opened straight from disk (file://) there is no Referer and the main server blocks it, so use the .de mirror.
+  var SERVED_OVER_HTTP = (location.protocol === 'http:' || location.protocol === 'https:');
+  var OSM_CARTO_URL = SERVED_OVER_HTTP ? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png' : 'https://tile.openstreetmap.de/{z}/{x}/{y}.png';
+  var OSM_NATIVE_ZOOM = SERVED_OVER_HTTP ? 19 : 18;
+
+  var miniMapBaseLayer = L.tileLayer(OSM_CARTO_URL, {
+    maxZoom: 19, maxNativeZoom: OSM_NATIVE_ZOOM,
     attribution: '',
     opacity: 1,
     pane: 'basePane'
@@ -858,21 +864,24 @@ function initApp() {
   };
   var totalDistanceM = 0;
 
-  function teleportCarTo(lat, lng) {
+  function teleportCarTo(lat, lng, exactRouteIdx) {
     car.lat = lat;
     car.lng = lng;
     car.speed = 0;
     if (mapReady) map.jumpTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 17) });
-    syncRouteToCar();
+    syncRouteToCar(exactRouteIdx);
   }
 
   // After a teleport: work out where on the route the car now is, so the turn list, the
   // yellow highlight and autodrive all continue from THERE (instead of resetting to turn 1,
   // or letting autodrive snap the car back to its old position along the route).
-  function syncRouteToCar() {
+  function syncRouteToCar(exactRouteIdx) {
     wanderState = null; // wander autodrive (if on) restarts from the new location
     if (!activeRoute || !activeRoute.coords) { updateRouteHighlight(null); return; }
-    var idx = nearestRouteIndex(activeRoute.coords, car.lat, car.lng);
+    // When we know exactly which route point we teleported to, use it — a nearest-point search
+    // can pick the wrong pass when the route doubles back over the same road.
+    var idx = (typeof exactRouteIdx === 'number' && exactRouteIdx >= 0)
+      ? exactRouteIdx : nearestRouteIndex(activeRoute.coords, car.lat, car.lng);
     var c = activeRoute.coords[idx];
     var offRoute = distanceMeters(car.lat, car.lng, c[1], c[0]) > 300;
     activeRoute.progressM = activeRoute.cumDist[idx];
@@ -882,6 +891,7 @@ function initApp() {
       st.passedAtOdometer = null;
     });
     dpLastScrolledIdx = -1;
+    dpRenderKey = null;
     updateRouteHighlight(null);
     if (directionsPanelOpen) renderDirectionsPanel();
   }
@@ -943,6 +953,7 @@ function initApp() {
     document.getElementById('unitsImperialBtn').classList.toggle('active', u === 'imperial');
     document.getElementById('speedHudUnit').textContent = (u === 'imperial' ? 'MPH' : 'KM/H');
     document.getElementById('distanceHudUnit').textContent = distanceUnitLabel(false);
+    dpRenderKey = null;
     if (activeRoute) { renderDirectionsPanel(); }
   }
   document.getElementById('unitsMetricBtn').addEventListener('click', function () { setUnits('metric'); });
@@ -1068,16 +1079,23 @@ function initApp() {
     directionsPanelOpen = typeof forceOpen === 'boolean' ? forceOpen : !directionsPanelOpen;
     directionsPanelEl.classList.toggle('open', directionsPanelOpen);
     document.getElementById('directionsToggleBtn').classList.toggle('active', directionsPanelOpen);
-    if (directionsPanelOpen) { dpLastScrolledIdx = -1; renderDirectionsPanel(); }
+    if (directionsPanelOpen) { dpLastScrolledIdx = -1; dpRenderKey = null; renderDirectionsPanel(); }
   }
 
   function teleportBeforeTurn(step) {
     var pt = (step.highlightCoords && step.highlightCoords.length) ? step.highlightCoords[0] : [step.lng, step.lat];
-    teleportCarTo(pt[1], pt[0]);
+    var exactIdx = activeRoute ? activeRoute.coords.indexOf(pt) : -1;
+    teleportCarTo(pt[1], pt[0], exactIdx);
     announceDrive('Teleported to 600m before: ' + step.text);
   }
 
+  var dpRenderKey = null;
   function renderDirectionsPanel() {
+    if (activeRoute && activeRoute.steps.length) {
+      var key = activeRoute.steps.findIndex(function (st) { return !st.announced; }) + '|' + activeRoute.steps.length + '|' + units + '|' + activeRoute.summary;
+      if (key === dpRenderKey) return; // nothing changed — don't rebuild the DOM (rebuilding every frame swallowed button clicks)
+      dpRenderKey = key;
+    } else { dpRenderKey = null; }
     if (!activeRoute || !activeRoute.steps.length) {
       dpSummaryEl.textContent = 'No route calculated yet — use the Directions panel on the left.';
       dpStepsEl.innerHTML = '';
@@ -1171,8 +1189,8 @@ function initApp() {
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       { maxZoom: 19, attribution: 'Esri World Imagery', opacity: 0, pane: 'aerialPane' }
     ).addTo(bigMap);
-    bigMapBaseLayer = L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', {
-      maxZoom: 19, maxNativeZoom: 18,
+    bigMapBaseLayer = L.tileLayer(OSM_CARTO_URL, {
+      maxZoom: 19, maxNativeZoom: OSM_NATIVE_ZOOM,
       attribution: '&copy; OpenStreetMap contributors',
       opacity: 1,
       pane: 'basePane'
@@ -2057,6 +2075,7 @@ function initApp() {
       activeRoute.summary = formatDistanceLong(activeRoute.totalDistanceRawM) + ', about ' + timeMin + ' min by car.';
       updateRouteHighlight(null);
       dpLastScrolledIdx = -1;
+      dpRenderKey = null;
 
       routeSteps.innerHTML = '';
       activeRoute.steps.forEach(function (s) {
