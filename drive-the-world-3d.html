@@ -114,6 +114,8 @@
     font-weight: 600;
   }
   button:hover { background: var(--accent); color: #001018; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button:disabled:hover { background: transparent; color: var(--text); }
   button.secondary { background: transparent; border: 1px solid var(--panel-border); color: var(--text); }
   button.secondary:hover { background: #22314f; }
   button.secondary.active { background: #16a34a; border-color: #16a34a; color: #fff; }
@@ -544,6 +546,10 @@
         <label for="autodriveSpeed" style="margin:0;white-space:nowrap;flex:0 0 auto;">Speed</label>
         <input type="range" id="autodriveSpeed" min="10" max="350" value="350" style="flex:1;">
         <span id="autodriveSpeedVal" style="flex:0 0 auto;font-size:0.8rem;color:var(--muted);">350 km/h</span>
+      </div>
+      <div class="row" style="margin-top:6px;">
+        <button type="button" id="fastForwardBtn" class="secondary" disabled
+                title="Walking and cycling only, and only while autodrive is on">⏩ Fast-forward (walk/cycle + autodrive)</button>
       </div>
       <p style="font-size:0.75rem;color:var(--muted);margin:4px 0 0 0;">
         Autodrive follows your calculated route automatically. Requires a route from the Directions panel above.
@@ -1438,11 +1444,39 @@ function initApp() {
     walking: { label: 'Walking', icon: '🚶', profile: 'foot', maxKmh: 5,   minKmh: 1,  accel: 1.2, brakeAccel: 3,  friction: 2,   maxReverse: -1,   autoBrake: 1,   turnSpeedRef: 1 }
   };
   var currentMode = 'driving';
+  var MODE_PHRASE = { driving: 'by car', cycling: 'by bike', walking: 'on foot' };
+
+  /* Fast-forward (walk/cycle + autodrive only): really travels at the driving top speed (350 km/h)
+     while the speedometer keeps showing the mode's own speed (the autodrive slider value). */
+  var fastForwardOn = false;
+  var fastForwardBtn = document.getElementById('fastForwardBtn');
+  function ffActive() { return fastForwardOn && autodriveOn && currentMode !== 'driving'; }
+  function ffDisplayScale() { return autodriveTargetKmh / MODES.driving.maxKmh; }
+  function updateFastForwardUi() {
+    var available = autodriveOn && currentMode !== 'driving';
+    fastForwardBtn.disabled = !available;
+    fastForwardBtn.classList.toggle('active', fastForwardOn && available);
+  }
+  function endFastForward() {
+    if (fastForwardOn) {
+      // Convert the real (fast) speed back to the displayed one so we don't coast down from 350 km/h
+      if (autodriveOn && currentMode !== 'driving') car.speed *= ffDisplayScale();
+      fastForwardOn = false;
+    }
+    updateFastForwardUi();
+  }
+  fastForwardBtn.addEventListener('click', function () {
+    if (fastForwardBtn.disabled) return;
+    if (fastForwardOn) { endFastForward(); announceDrive('Fast-forward off.'); }
+    else { fastForwardOn = true; updateFastForwardUi(); announceDrive('Fast-forward on — travelling at 350 km/h, speedometer unchanged.'); }
+  });
 
   function setMode(mode) {
     if (!MODES[mode] || mode === currentMode) return;
     var m = MODES[mode];
+    endFastForward();
     currentMode = mode;
+    updateFastForwardUi();
 
     car.maxSpeed = m.maxKmh / 3.6;
     car.maxReverse = m.maxReverse;
@@ -1484,8 +1518,10 @@ function initApp() {
 
   function toggleAutodrive(forceOn) {
     var turningOn = typeof forceOn === 'boolean' ? forceOn : !autodriveOn;
+    if (!turningOn) endFastForward();
     autodriveOn = turningOn;
     autodriveBtn.classList.toggle('active', autodriveOn);
+    updateFastForwardUi();
     if (autodriveOn) {
       if (activeRoute && activeRoute.coords && activeRoute.coords.length) {
         autodriveMode = 'route';
@@ -1536,13 +1572,16 @@ function initApp() {
 
   function runAutodrive(dt) {
     var remainingM = Math.max(0, activeRoute.totalLen - activeRoute.progressM);
-    var cruiseSpeed = autodriveTargetKmh / 3.6;
-    // Cap speed so a braking distance at AUTODRIVE_BRAKE_DECEL naturally reaches 0 exactly at the end
-    var maxSpeedForRemaining = Math.sqrt(2 * AUTODRIVE_BRAKE_DECEL * remainingM);
+    var ff = ffActive();
+    var cruiseSpeed = ff ? MODES.driving.maxKmh / 3.6 : autodriveTargetKmh / 3.6;
+    var accelUsed = ff ? MODES.driving.accel : car.accel;
+    var decelUsed = ff ? MODES.driving.autoBrake : AUTODRIVE_BRAKE_DECEL;
+    // Cap speed so a braking distance at decelUsed naturally reaches 0 exactly at the end
+    var maxSpeedForRemaining = Math.sqrt(2 * decelUsed * remainingM);
     var targetSpeed = Math.min(cruiseSpeed, maxSpeedForRemaining);
 
-    if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + car.accel * dt);
-    else car.speed = Math.max(targetSpeed, car.speed - AUTODRIVE_BRAKE_DECEL * dt);
+    if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + accelUsed * dt);
+    else car.speed = Math.max(targetSpeed, car.speed - decelUsed * dt);
 
     var stepM = Math.min(car.speed * dt, remainingM);
     activeRoute.progressM += stepM;
@@ -1744,9 +1783,12 @@ function initApp() {
   function runWanderDrive(dt) {
     if (!wanderState) { startWander(); return; }
 
-    var targetSpeed = autodriveTargetKmh / 3.6;
-    if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + car.accel * dt);
-    else car.speed = Math.max(targetSpeed, car.speed - car.friction * dt);
+    var ffW = ffActive();
+    var targetSpeed = ffW ? MODES.driving.maxKmh / 3.6 : autodriveTargetKmh / 3.6;
+    var accelW = ffW ? MODES.driving.accel : car.accel;
+    var decelW = ffW ? MODES.driving.friction : car.friction;
+    if (car.speed < targetSpeed) car.speed = Math.min(targetSpeed, car.speed + accelW * dt);
+    else car.speed = Math.max(targetSpeed, car.speed - decelW * dt);
 
     wanderState.progressM += car.speed * dt;
     totalDistanceM += Math.abs(car.speed * dt);
@@ -1904,7 +1946,7 @@ function initApp() {
     if (Math.abs(car.speed) > 0.1) maybeUpdateStreetLabel();
     checkTurnByTurn();
 
-    var speedDisplay = formatSpeed(car.speed);
+    var speedDisplay = formatSpeed(ffActive() ? car.speed * ffDisplayScale() : car.speed);
     document.getElementById('speedHudValue').textContent = speedDisplay;
     document.getElementById('speedVal').textContent = speedDisplay + ' ' + speedUnitLabel();
     document.getElementById('headingVal').textContent = Math.round(car.heading) + '°';
@@ -2120,7 +2162,7 @@ function initApp() {
 
       var distKm = (path.distance / 1000).toFixed(1);
       var timeMin = Math.round(path.time / 60000);
-      routeSummary.textContent = formatDistanceLong(path.distance) + ', about ' + timeMin + ' min by car.';
+      routeSummary.textContent = formatDistanceLong(path.distance) + ', about ' + timeMin + ' min ' + MODE_PHRASE[currentMode] + '.';
 
       var steps = (path.instructions || []).map(function (instr) {
         var pointIdx = instr.interval && instr.interval.length ? instr.interval[0] : 0;
@@ -2143,7 +2185,7 @@ function initApp() {
         progressM: 0, autoIdx: 0,
         totalDistanceRawM: path.distance, totalTimeMin: timeMin
       };
-      activeRoute.summary = formatDistanceLong(activeRoute.totalDistanceRawM) + ', about ' + timeMin + ' min by car.';
+      activeRoute.summary = formatDistanceLong(activeRoute.totalDistanceRawM) + ', about ' + timeMin + ' min ' + MODE_PHRASE[currentMode] + '.';
       updateRouteHighlight(null);
       dpLastScrolledIdx = -1;
       dpRenderKey = null;
