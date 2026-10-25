@@ -226,10 +226,12 @@
     box-shadow: 0 4px 16px rgba(0,0,0,0.55);
   }
   #miniMap { width: 100%; height: 100%; }
+  #miniMap .leaflet-top.leaflet-left { margin-top: 55px; margin-left: 4px; }      /* zoom +/- : left-centre, inside the circle */
+  #miniMap .leaflet-bottom.leaflet-left { margin-left: 42px; margin-bottom: 6px; } /* scale bar: bottom, inside the circle */
   #miniMapCompass {
     position: absolute;
-    top: 14px;
-    left: 14px;
+    top: 20px;
+    left: calc(14px + 95px - 13px);
     width: 22px;
     height: 22px;
     background: #0b1526;
@@ -629,6 +631,7 @@
       <button id="muteBtn" type="button" title="Mute voice directions"><span class="bigLetter">🔊</span><span>Voice</span></button>
       <button id="hideUiBtn" type="button" title="Press H"><span class="bigLetter">▤</span><span>H / Hide</span></button>
       <button id="fullscreenBtn" type="button" title="Press K"><span class="bigLetter">⛶</span><span>K / Full</span></button>
+      <button id="fastForwardOverlayBtn" type="button" title="Press G — walking/cycling with autodrive on" disabled><span class="bigLetter">⏩</span><span>G / Fast</span></button>
     </div>
 
     <div id="directionsPanel" role="region" aria-label="Turn-by-turn directions">
@@ -691,7 +694,6 @@ function initApp() {
     bearing: 0,
     antialias: true
   });
-  map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-left');
   map.addControl(new maplibregl.AttributionControl({ compact: true }));
 
   var mapReady = false;
@@ -1456,6 +1458,9 @@ function initApp() {
     var available = autodriveOn && currentMode !== 'driving';
     fastForwardBtn.disabled = !available;
     fastForwardBtn.classList.toggle('active', fastForwardOn && available);
+    var ov = document.getElementById('fastForwardOverlayBtn');
+    ov.disabled = !available;
+    ov.classList.toggle('active', fastForwardOn && available);
   }
   function endFastForward() {
     if (fastForwardOn) {
@@ -1465,11 +1470,16 @@ function initApp() {
     }
     updateFastForwardUi();
   }
-  fastForwardBtn.addEventListener('click', function () {
-    if (fastForwardBtn.disabled) return;
+  function toggleFastForward() {
+    if (!(autodriveOn && currentMode !== 'driving')) {
+      announceDrive('Fast-forward needs walking or cycling mode with autodrive on.');
+      return;
+    }
     if (fastForwardOn) { endFastForward(); announceDrive('Fast-forward off.'); }
     else { fastForwardOn = true; updateFastForwardUi(); announceDrive('Fast-forward on — travelling at 350 km/h, speedometer unchanged.'); }
-  });
+  }
+  fastForwardBtn.addEventListener('click', toggleFastForward);
+  document.getElementById('fastForwardOverlayBtn').addEventListener('click', toggleFastForward);
 
   function setMode(mode) {
     if (!MODES[mode] || mode === currentMode) return;
@@ -1507,8 +1517,13 @@ function initApp() {
     document.getElementById('modeDrivingBtn').classList.toggle('active', mode === 'driving');
     document.getElementById('modeCyclingBtn').classList.toggle('active', mode === 'cycling');
     document.getElementById('modeWalkingBtn').classList.toggle('active', mode === 'walking');
-    announceDrive(m.label + ' mode (max ' + m.maxKmh + ' km/h).' +
-      (activeRoute ? ' Press Get directions to recalculate your route for this mode.' : ''));
+    if (activeRoute) {
+      // Re-route for the new mode: from where the car is now to the same destination
+      announceDrive(m.label + ' mode — recalculating your route…');
+      requestRoute(car.lat.toFixed(5) + ',' + car.lng.toFixed(5), activeRoute.destLat.toFixed(6) + ',' + activeRoute.destLng.toFixed(6));
+    } else {
+      announceDrive(m.label + ' mode (max ' + m.maxKmh + ' km/h).');
+    }
   }
   document.getElementById('modeDrivingBtn').addEventListener('click', function () { setMode('driving'); });
   document.getElementById('modeCyclingBtn').addEventListener('click', function () { setMode('cycling'); });
@@ -1853,6 +1868,7 @@ function initApp() {
     if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleAutodrive(); return; }
     if (e.key === 'k' || e.key === 'K') { e.preventDefault(); toggleFullscreen(); return; }
     if (e.key === 'h' || e.key === 'H') { e.preventDefault(); toggleHideUi(); return; }
+    if (e.key === 'g' || e.key === 'G') { e.preventDefault(); toggleFastForward(); return; }
     if (setKey(e.key, true)) {
       if (autodriveOn) toggleAutodrive(false); // manual steering/throttle hands control back from autopilot
       e.preventDefault();
@@ -2120,12 +2136,10 @@ function initApp() {
   var routeSummary = document.getElementById('routeSummary');
   var routeSteps = document.getElementById('routeSteps');
 
-  directionsForm.addEventListener('submit', function (e) {
-    e.preventDefault();
+  // Calculates a route for the CURRENT travel mode. Used by the form and by mode changes.
+  function requestRoute(fromText, toText) {
     var key = ghKeyInput.value.trim();
     if (!key) { showError('Please enter a GraphHopper API key first (see link above).'); return; }
-    var fromText = document.getElementById('fromInput').value.trim() || (car.lat.toFixed(5) + ',' + car.lng.toFixed(5));
-    var toText = document.getElementById('toInput').value.trim();
     if (!toText) { showError('Please enter a destination.'); return; }
 
     routeSummary.textContent = 'Looking up locations…';
@@ -2214,6 +2228,13 @@ function initApp() {
       routeSummary.textContent = '';
       showError(err.message);
     });
+  }
+
+  directionsForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var fromText = document.getElementById('fromInput').value.trim() || (car.lat.toFixed(5) + ',' + car.lng.toFixed(5));
+    var toText = document.getElementById('toInput').value.trim();
+    requestRoute(fromText, toText);
   });
 }
 
