@@ -181,6 +181,7 @@
   /* Fixed screen-pinned car icon: the CAMERA moves/rotates to follow the car every frame,
      so the icon itself never needs map projection — this avoids any drift from terrain
      elevation being calculated slightly differently for markers vs. the camera. */
+  .car-marker-wrap.upright { transform: translate(-50%, -50%); }
   .car-marker-wrap {
     position: absolute;
     top: 50%;
@@ -446,6 +447,12 @@
 
 <main>
   <div id="sidebar" aria-label="Controls and information panel">
+
+    <div class="row" style="margin-bottom:8px;" role="group" aria-label="Travel mode">
+      <button type="button" id="modeDrivingBtn" class="secondary active">🚗 Drive</button>
+      <button type="button" id="modeCyclingBtn" class="secondary">🚴 Cycle</button>
+      <button type="button" id="modeWalkingBtn" class="secondary">🚶 Walk</button>
+    </div>
 
     <div class="row" style="margin-bottom:12px;">
       <button type="button" id="unitsMetricBtn" class="secondary active">Metric</button>
@@ -864,7 +871,8 @@ function initApp() {
     heading: 0, speed: 0,
     maxSpeed: 97.2, maxReverse: -20, // 350 km/h top speed, faster reverse too
     accel: 6.5, brakeAccel: 22, friction: 6,
-    turnRate: 55
+    turnRate: 55,
+    turnSpeedRef: 3 // speed (m/s) at which turning reaches full rate; lower = can turn sharper when slow
   };
   var totalDistanceM = 0;
 
@@ -1421,6 +1429,57 @@ function initApp() {
     autodriveSpeedVal.textContent = Math.round(autodriveTargetKmh) + ' km/h';
   });
 
+  /* ---------------------------------------------------------
+     TRAVEL MODES — Drive / Cycle / Walk (global: gameplay + routing profile)
+  --------------------------------------------------------- */
+  var MODES = {
+    driving: { label: 'Driving', icon: '🚗', profile: 'car',  maxKmh: 350, minKmh: 10, accel: 6.5, brakeAccel: 22, friction: 6,   maxReverse: -20,  autoBrake: 5,   turnSpeedRef: 3 },
+    cycling: { label: 'Cycling', icon: '🚴', profile: 'bike', maxKmh: 30,  minKmh: 3,  accel: 1.5, brakeAccel: 4,  friction: 1.5, maxReverse: -2,   autoBrake: 1.5, turnSpeedRef: 2 },
+    walking: { label: 'Walking', icon: '🚶', profile: 'foot', maxKmh: 5,   minKmh: 1,  accel: 1.2, brakeAccel: 3,  friction: 2,   maxReverse: -1,   autoBrake: 1,   turnSpeedRef: 1 }
+  };
+  var currentMode = 'driving';
+
+  function setMode(mode) {
+    if (!MODES[mode] || mode === currentMode) return;
+    var m = MODES[mode];
+    currentMode = mode;
+
+    car.maxSpeed = m.maxKmh / 3.6;
+    car.maxReverse = m.maxReverse;
+    car.accel = m.accel;
+    car.brakeAccel = m.brakeAccel;
+    car.friction = m.friction;
+    car.turnSpeedRef = m.turnSpeedRef;
+    AUTODRIVE_BRAKE_DECEL = m.autoBrake;
+    if (Math.abs(car.speed) > car.maxSpeed) car.speed = car.speed > 0 ? car.maxSpeed : -car.maxSpeed;
+
+    // Autodrive speed slider follows the mode's limits (defaults to the mode's max)
+    autodriveSpeedSlider.min = m.minKmh;
+    autodriveSpeedSlider.max = m.maxKmh;
+    autodriveSpeedSlider.value = m.maxKmh;
+    autodriveTargetKmh = m.maxKmh;
+    autodriveSpeedVal.textContent = Math.round(autodriveTargetKmh) + ' km/h';
+
+    // Icon: the car emoji faces sideways and needs a quarter turn, people don't
+    carEl.textContent = m.icon;
+    carEl.classList.toggle('upright', mode !== 'driving');
+
+    // Wander autodrive uses a different road/path list per mode — start fresh
+    wanderWays = {};
+    wanderState = null;
+    wanderStarting = false;
+    lastWanderFetchTime = 0;
+
+    document.getElementById('modeDrivingBtn').classList.toggle('active', mode === 'driving');
+    document.getElementById('modeCyclingBtn').classList.toggle('active', mode === 'cycling');
+    document.getElementById('modeWalkingBtn').classList.toggle('active', mode === 'walking');
+    announceDrive(m.label + ' mode (max ' + m.maxKmh + ' km/h).' +
+      (activeRoute ? ' Press Get directions to recalculate your route for this mode.' : ''));
+  }
+  document.getElementById('modeDrivingBtn').addEventListener('click', function () { setMode('driving'); });
+  document.getElementById('modeCyclingBtn').addEventListener('click', function () { setMode('cycling'); });
+  document.getElementById('modeWalkingBtn').addEventListener('click', function () { setMode('walking'); });
+
   var autodriveMode = 'route'; // 'route' or 'wander'
 
   function toggleAutodrive(forceOn) {
@@ -1509,9 +1568,17 @@ function initApp() {
      Simplification: junctions are detected by matching way ENDPOINTS
      only (not mid-way T-junctions), using live Overpass road data.
   --------------------------------------------------------- */
-  var WANDER_HIGHWAY_TYPES = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|' +
+  var WANDER_HIGHWAY_TYPES_DRIVING = 'motorway|trunk|primary|secondary|tertiary|unclassified|residential|' +
     'motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|living_street|service|' +
     'pedestrian|track|bus_guideway|escape|raceway|road|busway';
+  // Walking / cycling: normal roads plus paths, but no motorways, bus guideways or raceways
+  var WANDER_HIGHWAY_TYPES_ACTIVE = 'trunk|primary|secondary|tertiary|unclassified|residential|' +
+    'trunk_link|primary_link|secondary_link|tertiary_link|living_street|service|pedestrian|track|road|' +
+    'footway|path|cycleway|bridleway';
+  function wanderHighwayTypes() {
+    if (currentMode === 'driving') return WANDER_HIGHWAY_TYPES_DRIVING;
+    return currentMode === 'walking' ? WANDER_HIGHWAY_TYPES_ACTIVE + '|steps' : WANDER_HIGHWAY_TYPES_ACTIVE;
+  }
   // Ferries never carry a highway=* tag (they're route=ferry instead), so this filter excludes them automatically.
 
   var wanderWays = {}; // id -> { coords: [[lng,lat], ...], tags }
@@ -1549,7 +1616,7 @@ function initApp() {
     var latPad = (b.getNorth() - b.getSouth()) * 0.3;
     var lngPad = (b.getEast() - b.getWest()) * 0.3;
     var bbox = (b.getSouth() - latPad) + ',' + (b.getWest() - lngPad) + ',' + (b.getNorth() + latPad) + ',' + (b.getEast() + lngPad);
-    var query = '[out:json][timeout:20];way["highway"~"^(' + WANDER_HIGHWAY_TYPES + ')$"](' + bbox + ');out geom;';
+    var query = '[out:json][timeout:20];way["highway"~"^(' + wanderHighwayTypes() + ')$"](' + bbox + ');out geom;';
     wanderFetchInFlight = true;
     lastWanderFetchTime = now;
     fetch('https://overpass-api.de/api/interpreter', { method: 'POST', body: 'data=' + encodeURIComponent(query) })
@@ -1799,7 +1866,7 @@ function initApp() {
       }
       car.speed = Math.max(car.maxReverse, Math.min(car.maxSpeed, car.speed));
 
-      var turnFactor = Math.min(1, Math.abs(car.speed) / 3 + 0.15);
+      var turnFactor = Math.min(1, Math.abs(car.speed) / car.turnSpeedRef + 0.15);
       if (input.left) car.heading -= car.turnRate * dt * turnFactor;
       if (input.right) car.heading += car.turnRate * dt * turnFactor;
       car.heading = ((car.heading % 360) + 360) % 360;
@@ -2027,7 +2094,7 @@ function initApp() {
       routeSummary.textContent = 'Calculating route…';
       var url = 'https://graphhopper.com/api/1/route?point=' + from.lat + ',' + from.lon +
                  '&point=' + to.lat + ',' + to.lon +
-                 '&vehicle=car&locale=en&points_encoded=false&instructions=true&key=' + encodeURIComponent(key);
+                 '&vehicle=' + MODES[currentMode].profile + '&locale=en&points_encoded=false&instructions=true&key=' + encodeURIComponent(key);
       return fetch(url).then(function (r) {
         if (!r.ok) {
           return r.json().catch(function () { return {}; }).then(function (body) {
