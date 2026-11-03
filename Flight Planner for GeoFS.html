@@ -22,7 +22,7 @@ textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}button
 <label>Arrival</label><input id="arr" autocomplete="off" placeholder="EGLL, LHR, or N51.47 W000.45"><div class="h" id="ai"></div>
 <label>Route — fixes, airways (e.g. <code>J80</code>), tracks (<code>NAT:A</code>, <code>PACOT:1</code>), coordinates</label><textarea id="route" rows="3" placeholder="MERIT J174 ... NAT:A ... or leave empty for direct"></textarea>
 <div class="r"><select id="lv"><option value="0">All airways</option><option value="1">Low airways</option><option value="2">High airways</option></select><select id="ts"><option value="">No track</option></select></div>
-<div class="r"><button id="au">Auto-route over airways</button></div>
+<label>Max direct-leg length (nm, 0 = off) — splits long direct legs into great-circle waypoints</label><input id="ml" type="number" value="250" min="0"><div class="r"><button id="au">Auto-route over airways</button></div>
 <h3>Oceanic tracks</h3><div class="h">Tracks change daily — paste the current NAT/PACOTS message lines (e.g. <code>A 52/20 53/30 54/40 JOOPY</code>).</div>
 <textarea id="tin" rows="3" placeholder="A ETARI 53/20 54/30 54/40 53/50 JOOPY"></textarea>
 <div class="r"><select id="ns"><option value="NAT">NAT</option><option value="PACOT">PACOT</option></select><button id="tp">Add tracks</button><button id="tx">Example</button></div><div id="tl"></div>
@@ -79,10 +79,10 @@ const path=(r,e)=>{const p=[];for(let i=e;i>=0;i=r.pv[i])p.push(i);return p.reve
 function walk(name,last,nid){const g=GR(name),out=[];let s=[];g.n.forEach((n,i)=>{if(n.id==last.id)s.push(i)});
 if(!s.length){let b=-1,bd=1e9;g.n.forEach((n,i)=>{const d=D(last.la,last.lo,n.la,n.lo);if(d<bd){bd=d;b=i}});if(bd>400)return null;s=[b];out.push(b)}
 const r=dj(g,s.map(i=>[i,0]));let e=-1,ed=1e11;g.n.forEach((n,i)=>{if(n.id==nid&&r.d[i]<ed){ed=r.d[i];e=i}});if(e<0)return null;
-const p=path(r,e);return[...out,...p.slice(out.length?0:1)].filter((x,i,a)=>a.indexOf(x)==i).map(i=>{const n=g.n[i];return P(n.id,[n.la,n.lo])||{id:n.id,la:n.la,lo:n.lo,t:'FIX'}})}
+const p=path(r,e);return[...out,...p.slice(out.length?0:1)].filter((x,i,a)=>a.indexOf(x)==i).map(i=>{const n=g.n[i],l=FX.get(n.id),m=l&&l.find(x=>D(x.la,x.lo,n.la,n.lo)<2);return{id:n.id,la:n.la,lo:n.lo,t:m?(m.t=='APT'?'WPT':m.t):'FIX'}})}
 function auto(a,b,lv){const dd=D(a.la,a.lo,b.la,b.lo);if(dd<80)return[];const g=GR(lv),k5=p=>g.n.map((n,i)=>[D(p.la,p.lo,n.la,n.lo),i]).sort((x,y)=>x[0]-y[0]).slice(0,6);
-const r=dj(g,k5(a).map(([d,i])=>[i,d+20]));let bi=-1,bc=1e18;for(const[d,i]of k5(b)){const c=r.d[i]+d;if(c<bc){bc=c;bi=i}}if(bi<0||bc>dd*1.8+300)return[];
-const p=path(r,bi),o=[g.n[p[0]].id];let i=1;while(i<p.length){const w=r.pa[p[i]];let j=i;while(j+1<p.length&&r.pa[p[j+1]]==w)j++;o.push(w,g.n[p[j]].id);i=j+1}return o}
+const r=dj(g,k5(a).map(([d,i])=>[i,d+20]));let bi=-1,bc=1e18;g.n.forEach((n,i)=>{if(r.d[i]<1e11){const e=D(n.la,n.lo,b.la,b.lo);if(r.d[i]+e<dd*1.35+100){const c=e+.25*r.d[i];if(c<bc){bc=c;bi=i}}}});if(bi<0)return[];
+const p=path(r,bi);if(p.length<2)return[];const o=[g.n[p[0]].id];let i=1;while(i<p.length){const w=r.pa[p[i]];let j=i;while(j+1<p.length&&r.pa[p[j+1]]==w)j++;o.push(w,g.n[p[j]].id);i=j+1}return o}
 function trk(){const ts=$('ts'),v=ts.value;ts.innerHTML='<option value="">No track</option>';let h='';
 for(const k in TR)for(const n in TR[k]){const t=k+':'+n;ts.innerHTML+=`<option>${E(t)}</option>`;h+=`<div class="t"><span title="${E(TR[k][n].join(' '))}"><b>${E(t)}</b> ${E(TR[k][n][0])} → ${E(TR[k][n].at(-1))}</span><span><button data-u="${E(t)}">Use</button> <button data-x="${E(t)}">✕</button></span></div>`}
 ts.value=v;$('tl').innerHTML=h;try{localStorage.setItem('tr',JSON.stringify(TR))}catch(e){}}
@@ -92,7 +92,7 @@ if(w.length>2&&/^[A-Z0-9]{1,6}$/i.test(w[0])&&w.slice(1).every(x=>pc(x)||FX.has(
 $('tx').onclick=()=>{$('tin').value=$('ns').value=='NAT'?'A 52/20 53/30 54/40 53/50\nB 51/20 52/30 53/40 52/50':'1 36N150E 37N160E 38N170E 38N180E 38N170W 37N160W';};
 $('au').onclick=()=>{const a=EP($('dep').value),b=EP($('arr').value);if(!a||!b)return plan();const lv=+$('lv').value,t=$('ts').value;let o;
 if(t){const[k,n]=t.split(':'),pts=TR[k][n].map(x=>P(x,[a.la,a.lo])).filter(Boolean);o=[...auto(a,pts[0],lv),t,...auto(pts.at(-1),b,lv)]}else o=auto(a,b,lv);
-$('route').value=o.join(' ');plan()};
+$('route').value=o.join(' ');plan();if(!o.length&&D(a.la,a.lo,b.la,b.lo)>=80)$('sum').innerHTML+='<div class="w">⚠ No connected airway route found — flying direct.</div>'};
 function plan(){const a=EP($('dep').value),b=EP($('arr').value),S=$('sum');$('di').textContent=a?(a.ap?`${a.ap.n} · ${a.ap.m}, ${a.ap.c} · ${a.ap.el} ft`:'coordinates'):'';$('ai').textContent=b?(b.ap?`${b.ap.n} · ${b.ap.m}, ${b.ap.c} · ${b.ap.el} ft`:'coordinates'):'';
 if(!a||!b||!AP.length){PL=null;S.textContent=AP.length?'Enter a valid departure and arrival (airport code or coordinates).':S.textContent;return draw()}
 const pts=[a],W=[],tk=$('route').value.trim().toUpperCase().split(/\s+/).filter(Boolean);let ref=[a.la,a.lo];
@@ -101,7 +101,7 @@ for(let i=0;i<tk.length;i++){const t=tk[i];if(t=='DCT')continue;let m=t.match(/^
 if(m){const tr=TR[m[1]=='NAT'?'NAT':'PACOT'][m[2]];if(!tr){W.push('Unknown track '+t);continue}for(const x of tr){const p=P(x,ref);p?add({...p,t:'WPT',trk:t}):W.push('Unknown fix '+x)}continue}
 if(AW.has(t)&&tk[i+1]){const r=walk(t,pts.at(-1),tk[i+1]);if(r){r.forEach(p=>add({...p,awy:t}));i++;continue}W.push(`No path on ${t} to ${tk[i+1]}`);continue}
 const p=P(t,ref);p?add(p):W.push('Unknown waypoint '+t)}
-pts.push({...b});const cd=[0];for(let i=1;i<pts.length;i++)cd.push(cd[i-1]+D(pts[i-1].la,pts[i-1].lo,pts[i].la,pts[i].lo));const T=cd.at(-1);
+pts.push({...b});const mx=+$('ml').value;if(mx>0){for(let i=pts.length-1;i>0;i--){if(pts[i].trk&&pts[i-1].trk||pts[i].awy&&pts[i].awy==pts[i-1].awy)continue;const k=Math.ceil(D(pts[i-1].la,pts[i-1].lo,pts[i].la,pts[i].lo)/mx);for(let j=k-1;j>=1;j--){const[la,lo]=gc(pts[i-1],pts[i],j/k);pts.splice(i,0,{id:'',la,lo,t:'WPT',g:1})}}let q=0;pts.forEach(p=>{if(p.g)p.id='GC'+String(++q).padStart(2,'0')})}const cd=[0];for(let i=1;i<pts.length;i++)cd.push(cd[i-1]+D(pts[i-1].la,pts[i-1].lo,pts[i].la,pts[i].lo));const T=cd.at(-1);
 pts.forEach((p,i)=>p.d=cd[i]);let ns=pts,pr=$('pr').checked,I={},pk,cl,ds,cr=+$('cr').value||2000,dr=+$('dr').value||1800,ck=+$('ck').value||250,dk=+$('dk').value||250,e0=a.el||0,e1=b.el||0;
 if(pr){pk=(+$('fl').value||350)*100;cl=(pk-e0)/cr*ck/60;ds=(pk-e1)/dr*dk/60;if(cl+ds>T){const k=T/(cl+ds);pk=Math.round(e0+(pk-e0)*k);cl*=k;ds*=k;I.cut=1}
 const at=d=>{let i=0;while(i<cd.length-2&&cd[i+1]<d)i++;const f=(d-cd[i])/((cd[i+1]-cd[i])||1);const[la,lo]=gc(pts[i],pts[i+1],f);return{la,lo,t:'WPT',d}};
