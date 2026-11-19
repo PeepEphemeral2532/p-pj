@@ -64,9 +64,28 @@
     grid-template-columns: 380px 1fr;
     height: calc(100vh - 62px);
   }
+  main { height: calc(100dvh - 62px); } /* dvh: tracks the visible area on phones as the browser toolbar shows/hides */
   @media (max-width: 800px) {
-    main { grid-template-columns: 1fr; height: auto; }
-    #map { height: 60vh; }
+    /* Phones: map stays pinned on top, the panel scrolls underneath it, so changing profile or
+       getting directions (which grows the panel) can never push the map off screen. */
+    body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+    header { flex: 0 0 auto; padding: 8px 12px; }
+    header p { display: none; }
+    main { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; height: auto; }
+    #mapWrap { order: -1; flex: 0 0 55%; height: auto; min-height: 240px; }
+    #sidebar { flex: 1 1 auto; min-height: 0; border-right: none; border-top: 1px solid var(--panel-border); }
+    body.ui-hidden #mapWrap { flex: 1 1 auto; }
+    /* smaller minimap and overlays so they fit a short map */
+    #miniMapWrap { width: 120px; height: 120px; }
+    #miniMapCompass { top: 18px; left: calc(14px + 60px - 13px); }
+    #miniMap .leaflet-top.leaflet-left { margin-top: 20px; margin-left: 0; }
+    #miniMap .leaflet-control-scale { display: none; }
+    #streetLabel { top: 142px; max-width: 150px; font-size: 0.75rem; }
+    #overlayBtnRow { top: 182px; width: 150px; }
+    #overlayBtnRow button { width: 34px; height: 34px; font-size: 0.5rem; }
+    #overlayBtnRow button .bigLetter { font-size: 0.8rem; }
+    #speedHudValue { font-size: 1.8rem; }
+    .aerialControl { font-size: 0.7rem; min-width: 0; }
   }
 
   #sidebar {
@@ -315,6 +334,25 @@
   #speedHudValue { font-size: 2.6rem; font-weight: 800; display: block; line-height: 1; }
   #speedHudUnit { font-size: 0.7rem; letter-spacing: 3px; color: #94a3b8; }
 
+  #aerialCredit {
+    display: none;
+    position: absolute;
+    bottom: 3px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 495;
+    max-width: 90%;
+    background: rgba(0,0,0,0.6);
+    color: #e2e8f0;
+    font-size: 0.62rem;
+    padding: 1px 8px;
+    border-radius: 6px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #aerialCredit a { color: #7dd3fc; }
   #bottomLeftHuds {
     position: absolute;
     bottom: 20px;
@@ -492,8 +530,8 @@
       <form id="directionsForm">
         <label for="fromInput">From</label>
         <div class="row">
-          <input type="text" id="fromInput" autocomplete="off" placeholder="Start address, or leave blank to use your car">
-          <button type="button" id="useCarBtn" class="secondary" title="Use current car position as start">Use car</button>
+          <input type="text" id="fromInput" autocomplete="off" placeholder="Start address, or leave blank to use your position">
+          <button type="button" id="useCarBtn" class="secondary" title="Use your current position as the start">Use my position</button>
         </div>
         <label for="toInput">To</label>
         <input type="text" id="toInput" autocomplete="off" placeholder="Destination address">
@@ -526,7 +564,7 @@
         <kbd>M</kbd> pannable map,
         <kbd>N</kbd> turn list,
         <kbd>F</kbd> autodrive.
-        The camera rotates and tilts with your car, like a chase view.
+        The camera rotates and tilts with you, like a chase view.
       </p>
 
       <div class="controls-grid" role="group" aria-label="On-screen driving controls">
@@ -535,7 +573,7 @@
         <span class="empty"></span>
 
         <button id="btnLeft" aria-label="Turn left">◀</button>
-        <button id="btnStop" aria-label="Stop the car">■</button>
+        <button id="btnStop" aria-label="Stop">■</button>
         <button id="btnRight" aria-label="Turn right">▶</button>
 
         <span class="empty"></span>
@@ -564,7 +602,7 @@
 
       <div class="status-line"><span>Speed</span><span id="speedVal">0 km/h</span></div>
       <div class="status-line"><span>Heading</span><span id="headingVal">0°</span></div>
-      <div class="status-line"><span>Distance driven</span><span id="distVal">0.0 km</span></div>
+      <div class="status-line"><span id="distLabel">Distance driven</span><span id="distVal">0.0 km</span></div>
 
       <p id="driveStatus" aria-live="polite"></p>
       <p id="errorLog" role="alert" aria-live="assertive"></p>
@@ -589,7 +627,7 @@
       <p style="font-size:0.8rem;color:var(--muted)">
         Map style &amp; 3D buildings: OpenFreeMap "Liberty" (built from OpenStreetMap data).
         Terrain elevation: public Terrarium DEM tiles. Sky/lighting is fixed (no time-of-day or
-        seasonal simulation). Aerial imagery: Esri World Imagery, toggleable with an optional 25%
+        seasonal simulation). Aerial imagery: Esri World Imagery (Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community), toggleable with an optional 25%
         map-opacity blend, available on the main view, minimap, and big map.
         Note: this is styled map/terrain data, not a custom 3D game engine — individually
         textured/lit building windows and modeled vehicles (like fully custom driving games)
@@ -599,17 +637,22 @@
         calculated route exactly when one exists, or otherwise wanders the real OSM road network
         (mostly going straight through intersections, occasionally taking a random turn) using
         live Overpass road data. Turn-by-turn narration uses your browser's built-in text-to-speech.
-        Hobby project, not affiliated with OpenStreetMap, OpenFreeMap, GraphHopper, or Esri.
+        Hobby project, not affiliated with or endorsed by OpenStreetMap, OpenFreeMap, GraphHopper, or Esri.
       </p>
     </details>
 
     <p style="font-size:0.8rem;margin:14px 0 4px 0;">
       <a href="https://github.com/PeepEphemeral2532/p-pj" target="_blank" rel="noopener" style="color:var(--accent);">View this project on GitHub</a>
     </p>
+    <p style="font-size:0.72rem;color:var(--muted);margin:6px 0 0 0;line-height:1.4;">
+      Map data &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style="color:var(--accent);">OpenStreetMap</a> contributors.
+      Aerial imagery: Tiles &copy; <a href="https://www.esri.com" target="_blank" rel="noopener" style="color:var(--accent);">Esri</a>
+      &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community.
+    </p>
   </div>
 
   <div id="mapWrap">
-    <div id="map" aria-label="Interactive 3D map — drive your car around real-world roads and buildings"></div>
+    <div id="map" aria-label="Interactive 3D map — travel around real-world roads and buildings"></div>
     <div id="miniMapWrap" aria-hidden="true">
       <div id="miniMap"></div>
     </div>
@@ -661,6 +704,8 @@
       <span id="speedHudValue">0</span>
       <span id="speedHudUnit">KM/H</span>
     </div>
+    <div id="aerialCredit">Tiles &copy; <a href="https://www.esri.com" target="_blank" rel="noopener">Esri</a> &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community</div>
+
     <div id="bottomLeftHuds">
       <div id="turnDistanceHud" aria-hidden="true">
         <span id="turnDistanceHudValue">–</span>
@@ -753,7 +798,7 @@ function initApp() {
       type: 'raster',
       tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
       tileSize: 256,
-      attribution: 'Esri World Imagery'
+      attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'
     });
     map.addLayer({
       id: 'aerial-imagery-layer',
@@ -810,7 +855,7 @@ function initApp() {
 
   var miniMapAerialLayer = L.tileLayer(
     'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    { maxZoom: 19, attribution: 'Esri World Imagery', opacity: 0, pane: 'aerialPane' }
+    { maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community', opacity: 0, pane: 'aerialPane' }
   ).addTo(miniMap);
   // Served over http(s) (e.g. GitHub Pages) the browser sends a Referer, so OSM's main tile server accepts us.
   // Opened straight from disk (file://) there is no Referer and the main server blocks it, so use the .de mirror.
@@ -957,9 +1002,16 @@ function initApp() {
   function formatDistanceShort(m) { // for big HUD numbers — always a single decimal figure
     return units === 'imperial' ? (m / 1609.344).toFixed(2) : (m / 1000).toFixed(2);
   }
+  function distanceVerb() {
+    return ({ driving: 'driven', cycling: 'cycled', walking: 'walked' })[currentMode] || 'travelled';
+  }
   function distanceUnitLabel(longForm) {
-    if (units === 'imperial') return longForm ? 'mi driven' : 'MI DRIVEN';
-    return longForm ? 'km driven' : 'KM DRIVEN';
+    var text = (units === 'imperial' ? 'mi ' : 'km ') + distanceVerb();
+    return longForm ? text : text.toUpperCase();
+  }
+  function refreshDistanceLabels() {
+    document.getElementById('distanceHudUnit').textContent = distanceUnitLabel(false);
+    document.getElementById('distLabel').textContent = 'Distance ' + distanceVerb();
   }
   function formatSpeed(metersPerSec) {
     var kmh = Math.abs(metersPerSec) * 3.6;
@@ -972,7 +1024,7 @@ function initApp() {
     document.getElementById('unitsMetricBtn').classList.toggle('active', u === 'metric');
     document.getElementById('unitsImperialBtn').classList.toggle('active', u === 'imperial');
     document.getElementById('speedHudUnit').textContent = (u === 'imperial' ? 'MPH' : 'KM/H');
-    document.getElementById('distanceHudUnit').textContent = distanceUnitLabel(false);
+    refreshDistanceLabels();
     dpRenderKey = null;
     if (activeRoute) { renderDirectionsPanel(); }
   }
@@ -1207,7 +1259,7 @@ function initApp() {
     // ambiguity about which layer renders on top.
     bigMapAerialLayer = L.tileLayer(
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      { maxZoom: 19, attribution: 'Esri World Imagery', opacity: 0, pane: 'aerialPane' }
+      { maxZoom: 19, attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community', opacity: 0, pane: 'aerialPane' }
     ).addTo(bigMap);
     bigMapBaseLayer = L.tileLayer(OSM_CARTO_URL, {
       maxZoom: 19, maxNativeZoom: OSM_NATIVE_ZOOM,
@@ -1217,7 +1269,7 @@ function initApp() {
     }).addTo(bigMap);
     bigMapRouteLine = L.polyline([], { color: '#38bdf8', weight: 4, opacity: 0.9 }).addTo(bigMap);
     bigMapRouteHighlight = L.polyline([], { color: '#facc15', weight: 5, opacity: 0.98 }).addTo(bigMap);
-    bigMapCarMarker = L.marker([car.lat, car.lng]).addTo(bigMap).bindPopup('Your car');
+    bigMapCarMarker = L.marker([car.lat, car.lng]).addTo(bigMap).bindPopup('You are here');
 
     // Right-click menu: Directions From Here / To Here / Show address
     bigMap.on('contextmenu', function (e) { showBigMapContextMenu(e); });
@@ -1402,6 +1454,7 @@ function initApp() {
     var aerialOn = document.getElementById('aerialToggleMain').checked;
     var pct25 = document.getElementById('aerialOpacityMain').checked;
     map.setLayoutProperty('aerial-imagery-layer', 'visibility', aerialOn ? 'visible' : 'none');
+    document.getElementById('aerialCredit').style.display = aerialOn ? 'block' : 'none';
     map.setPaintProperty('aerial-imagery-layer', 'raster-opacity', 1); // aerial always stays fully opaque
     setBaseMapOpacityFactor(aerialOn ? (pct25 ? 0.25 : 0) : null);
     applyMinimapAerial(aerialOn, pct25);
@@ -1503,6 +1556,8 @@ function initApp() {
     autodriveSpeedSlider.value = m.maxKmh;
     autodriveTargetKmh = m.maxKmh;
     autodriveSpeedVal.textContent = Math.round(autodriveTargetKmh) + ' km/h';
+
+    refreshDistanceLabels();
 
     // Icon: the car emoji faces sideways and needs a quarter turn, people don't
     carEl.textContent = m.icon;
@@ -1944,7 +1999,8 @@ function initApp() {
     if (mapReady) {
       // A constant zoom, not tied to speed — the earlier speed-based formula caused jarring
       // zoom swings (zoomed way out at cruising speed, then zoomed back in tight near a stop).
-      map.jumpTo({ center: [car.lng, car.lat], bearing: car.heading, pitch: currentPitch, zoom: DRIVE_ZOOM_BASE });
+      map.jumpTo({ center: [car.lng, car.lat], bearing: car.heading, pitch: currentPitch, zoom: DRIVE_ZOOM_BASE,
+                   padding: { top: 0, bottom: 0, left: 0, right: 0 } });
     }
 
     // Minimap: stays north-up always; only the heading arrow rotates. Throttled recenter for perf.
@@ -1983,6 +2039,15 @@ function initApp() {
 
     requestAnimationFrame(tick);
   }
+
+  // Keep every map the right size whenever the layout changes (sidebar growing, rotation, phone toolbar collapsing)
+  function resizeAllMaps() {
+    map.resize();
+    miniMap.invalidateSize();
+    if (bigMap) bigMap.invalidateSize();
+  }
+  if (window.ResizeObserver) new ResizeObserver(resizeAllMaps).observe(document.getElementById('mapWrap'));
+  window.addEventListener('orientationchange', function () { setTimeout(resizeAllMaps, 250); });
   requestAnimationFrame(tick);
 
   function bearingBetween(lat1, lng1, lat2, lng2) {
@@ -2171,8 +2236,9 @@ function initApp() {
       miniRouteLine.setLatLngs(coords.map(function (c) { return [c[1], c[0]]; }));
       syncBigMapRoute();
 
-      var bounds = coords.reduce(function (b, c) { return b.extend(c); }, new maplibregl.LngLatBounds(coords[0], coords[0]));
-      map.fitBounds(bounds, { padding: 60, pitch: currentPitch, duration: 800 });
+      // (No map.fitBounds here: the camera is locked to the car every frame, and a fit-to-route animation
+      //  fought that — it glitched the view, worst on phones. Open the big map (M) to see the whole route.)
+      setTimeout(function () { map.resize(); miniMap.invalidateSize(); if (bigMap) bigMap.invalidateSize(); }, 150);
 
       var distKm = (path.distance / 1000).toFixed(1);
       var timeMin = Math.round(path.time / 60000);
